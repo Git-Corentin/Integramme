@@ -2,13 +2,29 @@
 
 Jouer, générer, résoudre et **comprendre** les integrammes (grilles logiques).
 
-- **Jouer** : grille interactive (tactile et souris), annuler/rétablir, exclusion automatique, indices progressifs (« coup de pouce » puis explication complète), vérification, sauvegarde automatique, partage par lien.
+- **Jouer** : grille qui s’ajuste automatiquement à l’écran (sans défilement), mode précision sur téléphone pour les petites cases, annuler/rétablir, exclusion automatique, indices progressifs (« coup de pouce » puis explication complète), vérification, notes avec autocomplétion et symboles, sauvegarde automatique, partage par lien.
 - **Créer** : générateur à 5 niveaux (Facile → Extrême), 6 univers, tailles de 3×4 à 6×6, enquête du jour. Chaque grille a une solution unique et se résout par le raisonnement.
-- **Solveur** : saisissez n’importe quel integramme ; l’outil vérifie l’unicité, estime la difficulté et explique la solution étape par étape, avec des mots.
+- **Solveur** : saisissez n’importe quel integramme ; l’outil vérifie l’unicité, estime la difficulté et explique la solution étape par étape, avec des mots. Un indice peut regrouper plusieurs contraintes (ex. « La chanteuse a un chat » = chanteuse ↔ chat + c’est une femme), son texte est librement modifiable, et chaque indice se modifie après coup.
 - **Méthode** : toutes les techniques illustrées (exclusions, transitivité, élimination croisée, sous-ensembles, comparaisons, écarts, raisonnement par l’absurde, disjonction de cas) et la sémantique des indices (soit/soit, l’un/l’autre, conditionnels, négations implicites…).
 - **Application installable** (PWA) : icône sur l’écran d’accueil Android, fonctionne hors ligne.
 
 Aucune dépendance, aucune étape de compilation : ce sont des fichiers statiques.
+
+## Mettre en ligne sur GitHub Pages (5 minutes)
+
+1. Créez un dépôt sur GitHub, par exemple `integramme` (public).
+2. Envoyez-y **le contenu** de ce dossier (le fichier `index.html` doit être à la racine du dépôt) :
+   - soit par le site : *Add file → Upload files*, glissez tous les fichiers et dossiers, puis *Commit changes* ;
+   - soit en ligne de commande :
+     ```bash
+     cd integramme
+     git init && git add . && git commit -m "Integramme"
+     git branch -M main
+     git remote add origin https://github.com/VOTRE-NOM/integramme.git
+     git push -u origin main
+     ```
+3. Dans le dépôt : *Settings → Pages → Build and deployment*, choisissez **Deploy from a branch**, branche `main`, dossier `/ (root)`, puis *Save*.
+4. Après une minute environ, le site est disponible à l’adresse `https://VOTRE-NOM.github.io/integramme/`.
 
 ## L’installer sur Android
 
@@ -68,4 +84,4 @@ python3 -m http.server 8000
 }
 ```
 
-Les éléments sont désignés par un index global `catégorie × N + rang`. Types d’indices : `is`, `not`, `either`, `pair`, `lt`, `diff`, `dist`, `alldiff`.
+Les éléments sont désignés par un index global `catégorie × N + rang`. Types d’indices : `is`, `not`, `either`, `pair`, `lt`, `diff`, `dist`, `alldiff`, `none` (ni… ni…), `oneof` (l’un de…), `gender` (`g: "f"|"m"`), `cond` (si a = b alors c = d), et `multi` (`parts: [...]`) pour combiner plusieurs contraintes dans un même indice. Tout indice accepte un champ `text` qui remplace le texte généré.

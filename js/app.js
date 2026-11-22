@@ -46,6 +46,8 @@
     xc: '<circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     dice: '<rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/>',
+    fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    note: '<path d="M4 4h16v12l-4 4H4z"/><path d="M8 9h8M8 13h5"/>',
     copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
   };
   const ic = (n, cls) => '<svg class="' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (P_[n] || '') + '</svg>';
@@ -183,11 +185,7 @@
       const colCats = []; for (let c = 1; c < K; c++) colCats.push(c);
       const rowCats = [0]; for (let c = K - 1; c >= 2; c--) rowCats.push(c);
       this.colCats = colCats; this.rowCats = rowCats;
-      const cols = ['auto', 'auto'], rows = ['auto', 'auto'];
-      colCats.forEach((_, j) => { for (let i = 0; i < N; i++) cols.push('auto'); if (j < colCats.length - 1) cols.push('6px'); });
-      rowCats.forEach((_, r) => { for (let i = 0; i < N; i++) rows.push('auto'); if (r < rowCats.length - 1) rows.push('6px'); });
-      el.style.gridTemplateColumns = cols.join(' ');
-      el.style.gridTemplateRows = rows.join(' ');
+      this.tracks(6); this._gap = 6;
       const frag = document.createDocumentFragment();
       const add = (cls, html, r1, c1, r2, c2, attrs) => {
         const d = document.createElement('div'); d.className = cls; if (html != null) d.innerHTML = html;
@@ -218,6 +216,7 @@
             for (let k = 0; k < N; k++) {
               const b = cc * N + k;
               const cell = add('cell' + (i % 2 ? ' alt' : ''), null, r0 + i, c0 + k, null, null, { 'data-a': a, 'data-b': b });
+              cell._r = r0 + i; cell._c = c0 + k;
               this.cells.set(this.key(a, b), cell);
             }
           });
@@ -247,23 +246,44 @@
       });
       this.el.addEventListener('pointerleave', clear);
     }
-    fit(container, zoom) {
+    tracks(gap) {
+      const { K, N } = this.P, cols = ['auto', 'auto'], rows = ['auto', 'auto'];
+      for (let j = 0; j < K - 1; j++) { for (let i = 0; i < N; i++) { cols.push('auto'); rows.push('auto'); } if (j < K - 2) { cols.push(gap + 'px'); rows.push(gap + 'px'); } }
+      this.el.style.gridTemplateColumns = cols.join(' ');
+      this.el.style.gridTemplateRows = rows.join(' ');
+    }
+    // Ajuste la taille des cases à l'espace disponible (largeur ET hauteur)
+    fit(container, zoom, maxH) {
       const { K, N } = this.P;
-      const W = container.clientWidth || 600;
-      // largeur des étiquettes de lignes
+      const W = Math.max(200, (container.clientWidth || 600) - 4);
+      const H = maxH != null ? Math.max(160, maxH) : (container.clientHeight > 50 ? container.clientHeight - 4 : 99999);
       const ctx = (GridView._ctx = GridView._ctx || document.createElement('canvas').getContext('2d'));
       ctx.font = '550 13px Inter, system-ui, sans-serif';
-      let lw = 0;
-      this.rowEls.forEach(e => { lw = Math.max(lw, ctx.measureText(e.textContent).width); });
-      const small = W < 520;
-      lw = Math.min(lw + 14, small ? 86 : 122);
-      const cols = (K - 1) * N, gaps = (K - 2) * 6;
-      let cs = Math.floor((W - 26 - lw - gaps - 4) / cols) - 2;
-      cs = Math.max(small ? 25 : 22, Math.min(34, cs));
-      cs = Math.round(cs * (zoom || 1));
-      this.el.style.setProperty('--cs', cs + 'px');
-      this.rowEls.forEach(e => { e.style.maxWidth = lw + 'px'; });
-      return cs;
+      let rw = 0, cw = 0;
+      this.rowEls.forEach(e => { rw = Math.max(rw, ctx.measureText(e.textContent).width); });
+      this.colEls.forEach(e => { cw = Math.max(cw, ctx.measureText(e.textContent).width); });
+      const cols = (K - 1) * N, nG = K - 2;
+      const geo = cs => {
+        const small = cs < 24;
+        const fs = Math.max(cs < 13 ? 8.5 : 9.5, Math.min(13, cs * 0.5 + 1));
+        const catw = small ? 18 : 26, gap = small ? 3 : 6;
+        const lw = Math.min(rw * fs / 13 + (small ? 7 : 12), cs < 14 ? 58 : small ? 74 : 124);
+        const hh = Math.min(cw * fs / 13 + (small ? 8 : 12), small ? 72 : 112);
+        const cathh = small ? 20 : 30;
+        return { cs, fs, catw, gap, lw, hh, cathh, small,
+          w: catw + lw + cols * (cs + 2) + nG * gap + 2, h: cathh + hh + cols * (cs + 2) + nG * gap + 2 };
+      };
+      let g = null;
+      for (let cs = 46; cs >= 9; cs--) { const t = geo(cs); if (t.w <= W && t.h <= H) { g = t; break; } }
+      if (!g) g = geo(9);
+      if (zoom && zoom !== 1) g = geo(Math.max(10, Math.round(g.cs * zoom)));
+      const st = this.el.style;
+      st.setProperty('--cs', g.cs + 'px'); st.setProperty('--fs', g.fs.toFixed(1) + 'px'); st.setProperty('--catw', g.catw + 'px');
+      st.setProperty('--lw', Math.round(g.lw) + 'px'); st.setProperty('--hh', Math.round(g.hh) + 'px'); st.setProperty('--cathh', g.cathh + 'px');
+      this.el.classList.toggle('small', g.small);
+      if (this._gap !== g.gap) { this._gap = g.gap; this.tracks(g.gap); }
+      this.cs = g.cs;
+      return g.cs;
     }
     update(marks, auto) {
       const M = this.P.M;
@@ -306,11 +326,11 @@
   }
   function serialize(g) {
     return { id: g.id, p: g.p, marks: Array.from(g.marks), auto: Array.from(g.auto), done: g.done, elapsed: g.elapsed,
-      finished: g.finished, hints: g.hints, checks: g.checks, created: g.created, updated: Date.now() };
+      finished: g.finished, hints: g.hints, checks: g.checks, created: g.created, notes: g.notes || '', updated: Date.now() };
   }
   function deserialize(o) {
     const g = newGame(o.p);
-    Object.assign(g, { id: o.id, done: o.done || [], elapsed: o.elapsed || 0, finished: !!o.finished, hints: o.hints || 0, checks: o.checks || 0, created: o.created || Date.now() });
+    Object.assign(g, { id: o.id, done: o.done || [], elapsed: o.elapsed || 0, finished: !!o.finished, hints: o.hints || 0, checks: o.checks || 0, created: o.created || Date.now(), notes: o.notes || '' });
     if (o.marks && o.marks.length === g.marks.length) g.marks = Int8Array.from(o.marks);
     if (o.auto && o.auto.length === g.auto.length) g.auto = Int32Array.from(o.auto);
     return g;
@@ -415,6 +435,7 @@
   function afterChange() {
     if (!game) return;
     if (gridView) gridView.update(game.marks, game.auto);
+    Sel.refresh();
     updatePlayChrome();
     saveGame();
     if (!game.finished && game.p.sol && isWon(game)) onWin();
@@ -422,8 +443,8 @@
 
   function updatePlayChrome() {
     const pr = $('#prog i'); if (pr) pr.style.width = Math.round(progressOf(game) * 100) + '%';
-    const u = $('#t-undo'), r = $('#t-redo');
-    if (u) u.disabled = !game.undo.length; if (r) r.disabled = !game.redo.length;
+    $$('[data-act="undo"]').forEach(u => { u.disabled = !game.undo.length; });
+    $$('[data-act="redo"]').forEach(r => { r.disabled = !game.redo.length; });
     renderRecap();
   }
 
@@ -447,107 +468,152 @@
   }
   const hash = s => { let x = 5381; for (let i = 0; i < s.length; i++) x = (x * 33 + s.charCodeAt(i)) >>> 0; return x.toString(36); };
 
+  const TOOL_IC = { cycle: 'cycle', no: 'cross', yes: 'dot' };
+  const TOOL_LB = { cycle: 'Auto', no: 'Croix', yes: 'Point' };
+  const isMobile = () => matchMedia('(max-width: 999px)').matches;
+
+  function toolbarHTML(mobile) {
+    const b = (act, icn, label, title, cls) => `<button class="tool ${cls || ''}" data-act="${act}" title="${title}">${ic(icn)}<span>${label}</span></button>`;
+    return (mobile ? b('mode', TOOL_IC[settings.tool], TOOL_LB[settings.tool], 'Outil : touchez pour changer (Auto → ✕ → ●)', 'mode') : '') +
+      b('undo', 'undo', 'Annuler', 'Annuler (Ctrl+Z)') + b('redo', 'redo', 'Rétablir', 'Rétablir (Ctrl+Y)') +
+      b('hint', 'bulb', 'Indice', 'Indice (H)', 'hint') + b('check', 'checkc', 'Vérifier', 'Vérifier la grille') +
+      b('sol', 'eye', 'Solution', 'Solution expliquée') + b('menu', 'dots', 'Plus', 'Plus d’options');
+  }
+
   function renderPlay(main) {
     const g = game, p = g.p, th = themeOf(p.theme);
     main.classList.add('has-playbar');
-    const tools = settings.tool;
+    const tools = settings.tool, lv = p.rating || p.level;
+    const tab = settings.ptab || 'clues';
     main.innerHTML = `
-      <div class="play-head">
-        <div style="flex:1;min-width:220px">
-          <div class="eyebrow">${th ? th.icon + ' ' : ''}Enquête${p.seed != null ? ' n°' + esc(String(p.seed).slice(-5)) : ''}</div>
-          <h1>${esc(p.title || 'Enquête')}</h1>
-        </div>
-        <div class="meta">
-          ${p.rating || p.level ? lvBadge(p.rating || p.level, LV[p.rating || p.level] && LV[p.rating || p.level].name) : ''}
-          <span class="badge">${p.cats.length} × ${p.cats[0].items.length}</span>
-          <span class="badge"><span class="timer" id="timer">${fmtTime(g.elapsed)}</span></span>
+      <div class="playwrap">
+        <div class="phead">
+          <div class="ttl">
+            <div class="eyebrow">${th ? th.icon + ' ' : ''}Enquête${p.seed != null ? ' n°' + esc(String(p.seed).slice(-5)) : ''}</div>
+            <h1>${esc(p.title || 'Enquête')}</h1>
+          </div>
+          <div class="meta">
+            ${lv ? lvBadge(lv, LV[lv] && LV[lv].name) : ''}
+            <span class="badge hide-xs">${p.cats.length} × ${p.cats[0].items.length}</span>
+            <span class="badge"><span class="timer" id="timer">${fmtTime(g.elapsed)}</span></span>
+          </div>
           <div class="progress" id="prog" title="Progression"><i style="width:0"></i></div>
         </div>
-      </div>
-      <div class="play">
-        <div>
-          <div class="card grid-card">
+        <div class="pmain">
+          <section class="card gridpane">
             <div class="grid-tools">
               <div class="seg" id="toolSeg" role="radiogroup" aria-label="Outil">
-                <button data-t="cycle" class="${tools === 'cycle' ? 'on' : ''}" title="Alterner vide → ✕ → ● (clic droit / appui long = ●)">${ic('cycle')}<span class="lbl-t">Auto</span></button>
+                <button data-t="cycle" class="${tools === 'cycle' ? 'on' : ''}" title="Alterner vide → ✕ → ● (clic droit / appui long = ●)">${ic('cycle')}<span>Auto</span></button>
                 <button data-t="no" class="${tools === 'no' ? 'on' : ''}" title="Poser des ✕ (glisser pour en poser plusieurs)">${ic('cross')}</button>
                 <button data-t="yes" class="${tools === 'yes' ? 'on' : ''}" title="Poser des ●">${ic('dot')}</button>
               </div>
               <div class="zoom">
-                <button class="icon-btn" id="zout" title="Dézoomer">${ic('zout')}</button>
-                <button class="icon-btn" id="zin" title="Zoomer">${ic('zin')}</button>
+                <button class="icon-btn" data-z="-" title="Réduire">${ic('zout')}</button>
+                <button class="icon-btn zfit ${settings.zoom === 1 ? 'hidden' : ''}" data-z="0" title="Ajuster à l’écran">${ic('fit')}</button>
+                <button class="icon-btn" data-z="+" title="Agrandir">${ic('zin')}</button>
               </div>
               <div class="sp"></div>
-      <div class="toolbar playbar">
-        <button class="tool" id="t-undo" title="Annuler (Ctrl+Z)">${ic('undo')}Annuler</button>
-        <button class="tool" id="t-redo" title="Rétablir (Ctrl+Y)">${ic('redo')}Rétablir</button>
-        <button class="tool hint" id="t-hint" title="Indice (H)">${ic('bulb')}Indice</button>
-        <button class="tool" id="t-check" title="Vérifier">${ic('checkc')}Vérifier</button>
-        <button class="tool" id="t-sol" title="Solution expliquée">${ic('eye')}Solution</button>
-        <button class="tool" id="t-menu" title="Plus">${ic('dots')}Plus</button>
+              <div class="toolbar desk">${toolbarHTML(false)}</div>
+            </div>
+            <div class="grid-fit" id="gscroll"></div>
+          </section>
+          <aside class="card sidepane" id="sidepane">
+            <div class="ptabs" role="tablist">
+              <button data-tab="clues" class="${tab === 'clues' ? 'on' : ''}">Indices <span class="badge" id="clueCount"></span></button>
+              <button data-tab="notes" class="${tab === 'notes' ? 'on' : ''}">Notes<span class="dot-mark ${g.notes ? '' : 'hidden'}" id="notesDot"></span></button>
+              <button data-tab="recap" class="${tab === 'recap' ? 'on' : ''}">Récap</button>
+            </div>
+            <div class="pbody">
+              <div class="pane ${tab === 'clues' ? '' : 'hidden'}" data-pane="clues">
+                ${p.intro ? `<details class="story" ${isMobile() ? '' : 'open'}><summary>L’affaire</summary><div>${esc(p.intro)}</div></details>` : ''}
+                <ol class="clues" id="clues">
+                  ${p.clues.map((cl, i) => `<li data-i="${i}" class="${g.done.includes(i) ? 'done' : ''}"><span>${esc(C.clueText(g.P, cl))}</span></li>`).join('')}
+                </ol>
+                <div class="pane-hint">Touchez un indice pour le barrer une fois exploité.</div>
               </div>
+              <div class="pane notes-pane ${tab === 'notes' ? '' : 'hidden'}" data-pane="notes"></div>
+              <div class="pane ${tab === 'recap' ? '' : 'hidden'}" data-pane="recap"><div class="recap" id="recap"></div></div>
             </div>
-            <div class="grid-scroll" id="gscroll"></div>
-            <div class="recap" id="recap"></div>
-          </div>
+          </aside>
         </div>
-        <aside class="side">
-          <div class="card card-pad">
-            <div class="eyebrow" style="margin-bottom:6px">L’affaire</div>
-            <div class="story">${esc(p.intro || '')}</div>
-          </div>
-          <div class="card card-pad">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-              <h3 style="margin:0;flex:1">Indices</h3>
-              <span class="badge" id="clueCount"></span>
-            </div>
-            <ol class="clues" id="clues">
-              ${p.clues.map((cl, i) => `<li data-i="${i}" class="${g.done.includes(i) ? 'done' : ''}"><span>${esc(C.clueText(g.P, cl))}</span></li>`).join('')}
-            </ol>
-            <div style="font-size:12.5px;color:var(--muted);margin-top:10px">Touchez un indice pour le barrer une fois exploité.</div>
-          </div>
-        </aside>
-      </div>
+        <div class="toolbar playbar mob">${toolbarHTML(true)}</div>
       </div>`;
 
     gridView = new GridView(g.P, { legend: '<div class="legend">✕ exclu<br>● associé</div>' });
-    const scroll = $('#gscroll');
-    scroll.appendChild(gridView.el);
-    const refit = () => gridView.fit(scroll, settings.zoom);
-    refit();
+    const fitEl = $('#gscroll');
+    fitEl.appendChild(gridView.el);
     gridView.update(g.marks, g.auto);
     gridView.el.classList.toggle('paint', settings.tool !== 'cycle');
     bindGrid(gridView);
+    Notes.mount($('[data-pane="notes"]', main));
+    const refit = () => {
+      if (!gridView || !document.body.contains(gridView.el)) return;
+      let maxH;
+      if (isMobile()) {
+        const wrap = $('.playwrap', main);
+        if (wrap.classList.contains('free')) maxH = innerHeight * 0.75;
+        else {
+          const used = $('.phead', main).offsetHeight + $('.playbar.mob', main).offsetHeight + 12 * 3 + 16 + ($('.grid-tools', main).offsetHeight || 0);
+          maxH = wrap.clientHeight - used - Math.min(165, wrap.clientHeight * 0.22);
+        }
+      }
+      gridView.fit(fitEl, settings.zoom, maxH);
+      $$('.zfit', main).forEach(b => b.classList.toggle('hidden', settings.zoom === 1));
+    };
+    playRefit = refit;
+    requestAnimationFrame(refit);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(refit);
+    if (playRO) playRO.disconnect();
+    playRO = new ResizeObserver(() => refit()); playRO.observe($('.playwrap', main));
+    window.onresize = refit;
     updatePlayChrome();
     updateClueCount();
-    window.onresize = () => { if (gridView && document.body.contains(gridView.el)) refit(); };
 
     $('#toolSeg').addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
-      settings.tool = b.dataset.t; saveSettings();
-      $$('#toolSeg button').forEach(x => x.classList.toggle('on', x === b));
-      gridView.el.classList.toggle('paint', settings.tool !== 'cycle');
+      setTool(b.dataset.t);
     });
-    $('#zin').onclick = () => { settings.zoom = Math.min(2, +(settings.zoom + 0.15).toFixed(2)); saveSettings(); refit(); };
-    $('#zout').onclick = () => { settings.zoom = Math.max(0.6, +(settings.zoom - 0.15).toFixed(2)); saveSettings(); refit(); };
+    main.querySelectorAll('[data-z]').forEach(b => b.onclick = () => zoomBy(b.dataset.z));
     $('#clues').addEventListener('click', e => {
       const li = e.target.closest('li'); if (!li) return;
       const i = +li.dataset.i, k = g.done.indexOf(i);
       if (k >= 0) g.done.splice(k, 1); else g.done.push(i);
       li.classList.toggle('done'); updateClueCount(); saveGame();
     });
-    $('#t-undo').onclick = undo; $('#t-redo').onclick = redo;
-    $('#t-hint').onclick = () => showHint();
-    $('#t-check').onclick = () => checkGrid();
-    $('#t-sol').onclick = () => openSolution();
-    $('#t-menu').onclick = () => openMenu();
+    $('.ptabs', main).addEventListener('click', e => {
+      const b = e.target.closest('[data-tab]'); if (!b) return;
+      settings.ptab = b.dataset.tab; saveSettings();
+      $$('.ptabs [data-tab]', main).forEach(x => x.classList.toggle('on', x === b));
+      $$('.pbody .pane', main).forEach(x => x.classList.toggle('hidden', x.dataset.pane !== b.dataset.tab));
+      if (b.dataset.tab === 'recap') renderRecap();
+    });
+    main.onclick = e => {
+      const b = e.target.closest('[data-act]'); if (!b) return;
+      const a = b.dataset.act;
+      if (a === 'undo') undo(); else if (a === 'redo') redo();
+      else if (a === 'hint') showHint(); else if (a === 'check') checkGrid();
+      else if (a === 'sol') openSolution(); else if (a === 'menu') openMenu();
+      else if (a === 'mode') setTool({ cycle: 'no', no: 'yes', yes: 'cycle' }[settings.tool]);
+    };
     startTimer();
     ensureSolution(g).then(() => { if (!g.p.sol) toast('Attention : cette enquête n’a pas de solution unique.'); });
   }
-  function updateClueCount() { const el = $('#clueCount'); if (el) el.textContent = game.done.length + ' / ' + game.p.clues.length; }
+  let playRefit = null, playRO = null;
+  function zoomBy(z) {
+    if (z === '0') settings.zoom = 1;
+    else settings.zoom = Math.max(0.7, Math.min(2.2, +(settings.zoom + (z === '+' ? 0.15 : -0.15)).toFixed(2)));
+    saveSettings(); if (playRefit) playRefit();
+  }
+  function setTool(t) {
+    settings.tool = t; saveSettings();
+    $$('#toolSeg button').forEach(x => x.classList.toggle('on', x.dataset.t === t));
+    $$('[data-act="mode"]').forEach(b => { b.innerHTML = ic(TOOL_IC[t]) + '<span>' + TOOL_LB[t] + '</span>'; });
+    if (gridView) gridView.el.classList.toggle('paint', t !== 'cycle');
+  }
+  function updateClueCount() { const el = $('#clueCount'); if (el) el.textContent = game.done.length + '/' + game.p.clues.length; }
 
   function renderRecap() {
-    const el = $('#recap'); if (!el || !game) return;
+    const el = $('#recap'); if (!el || !game || el.closest('.hidden')) return;
     const P = game.P, p = game.p, N = P.N;
     let html = '<table><thead><tr>' + p.cats.map((c, i) => '<th><span class="chip c' + i + '" style="font-size:11px">' + esc(c.name) + '</span></th>').join('') + '</tr></thead><tbody>';
     for (let e = 0; e < N; e++) {
@@ -559,8 +625,93 @@
       }
       html += '</tr>';
     }
-    el.innerHTML = html + '</tbody></table>';
+    el.innerHTML = html + '</tbody></table><div class="pane-hint">Le récapitulatif se remplit avec les ● posés dans la grille.</div>';
   }
+
+  /* ------------------------------ Notes ---------------------------------- */
+  const Notes = (function () {
+    const SYMS = ['<', '>', '=', '≠', '≤', '≥', '⇒', '⇔', '∨', '∧', '¬', '●', '✕', '?', '±', '→'];
+    const norm = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    let ta, sugg, prev, vocab = [];
+    function buildVocab() {
+      const p = game.p; vocab = [];
+      p.cats.forEach((c, ci) => {
+        vocab.push({ t: c.name, c: ci, cat: true });
+        c.items.forEach(it => vocab.push({ t: it.label, c: ci }));
+      });
+    }
+    function currentWord() {
+      const pos = ta.selectionStart, before = ta.value.slice(0, pos);
+      const m = before.match(/[\p{L}\p{N}'’\-/]+$/u);
+      return m ? { w: m[0], start: pos - m[0].length, end: pos } : { w: '', start: pos, end: pos };
+    }
+    function insert(text, replace) {
+      const v = ta.value, s0 = replace ? replace.start : ta.selectionStart, s1 = replace ? replace.end : ta.selectionEnd;
+      const after = v.slice(s1);
+      const pad = text.length > 1 && !/^\s/.test(after) ? ' ' : '';
+      ta.value = v.slice(0, s0) + text + pad + after;
+      const caret = s0 + text.length + pad.length;
+      ta.setSelectionRange(caret, caret);
+      onInput();
+    }
+    function renderSugg() {
+      const cw = currentWord(), w = norm(cw.w);
+      if (!w) { sugg.innerHTML = '<span class="muted">Tapez le début d’un nom pour l’insérer · symboles ci-dessus</span>'; return; }
+      const res = vocab.filter(v => { const n = norm(v.t); return n.startsWith(w) || n.split(/[\s'’\-]+/).some(x => x.startsWith(w)); })
+        .filter(v => norm(v.t) !== w).slice(0, 10);
+      sugg.innerHTML = res.length ? res.map((v, i) => `<button class="chip c${v.c} ${v.cat ? 'catchip' : ''}" data-i="${vocab.indexOf(v)}">${esc(v.t)}</button>`).join('') : '<span class="muted">Aucune correspondance</span>';
+    }
+    function onInput() {
+      game.notes = ta.value; saveGame();
+      const dot = $('#notesDot'); if (dot) dot.classList.toggle('hidden', !game.notes);
+      renderSugg();
+    }
+    function renderPreview() {
+      let html = esc(game.notes || '');
+      const labels = vocab.filter(v => !v.cat).sort((a, b) => b.t.length - a.t.length);
+      if (labels.length) {
+        const re = new RegExp('(?<![\\p{L}])(' + labels.map(v => esc(v.t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')(?![\\p{L}])', 'gu');
+        html = html.replace(re, m => { const v = labels.find(x => esc(x.t) === m); return '<span class="chip c' + v.c + '">' + m + '</span>'; });
+      }
+      prev.innerHTML = html ? html.replace(/\n/g, '<br>') : '<span class="muted">Aucune note.</span>';
+    }
+    function mount(el) {
+      buildVocab();
+      el.innerHTML = `<div class="sym">${SYMS.map(s => `<button data-s="${esc(s)}">${esc(s)}</button>`).join('')}<button class="prevbtn" data-prev title="Aperçu coloré">${ic('eye')}</button></div>
+        <div class="sugg"></div>
+        <textarea class="notes-ta" spellcheck="false" placeholder="Vos déductions et hypothèses… Ex. : Alice < chat ⇒ Alice ≠ 35 ans"></textarea>
+        <div class="notes-prev hidden"></div>`;
+      ta = $('.notes-ta', el); sugg = $('.sugg', el); prev = $('.notes-prev', el);
+      ta.value = game.notes || '';
+      ta.addEventListener('input', onInput);
+      ta.addEventListener('keyup', renderSugg); ta.addEventListener('click', renderSugg);
+      // garder le clavier ouvert : pointerdown + preventDefault
+      $('.sym', el).addEventListener('pointerdown', e => {
+        const b = e.target.closest('button'); if (!b) return; e.preventDefault();
+        if (b.dataset.prev != null) { const on = prev.classList.toggle('hidden'); ta.classList.toggle('hidden', !on); if (!on) renderPreview(); b.classList.toggle('on', !on); return; }
+        if (ta.classList.contains('hidden')) return;
+        insert(b.dataset.s); ta.focus();
+      });
+      sugg.addEventListener('pointerdown', e => {
+        const b = e.target.closest('button'); if (!b) return; e.preventDefault();
+        insert(vocab[+b.dataset.i].t, currentWord()); ta.focus();
+      });
+      // sur téléphone : le panneau de notes flotte au-dessus du clavier
+      const pane = $('#sidepane');
+      const vv = window.visualViewport;
+      const place = () => {
+        if (!pane.classList.contains('floating') || !vv) return;
+        const kb = Math.max(0, innerHeight - vv.height - vv.offsetTop);
+        pane.style.bottom = kb + 'px';
+        pane.style.height = Math.min(vv.height * 0.5, 360) + 'px';
+      };
+      ta.addEventListener('focus', () => { if (isMobile() && matchMedia('(pointer: coarse)').matches) { pane.classList.add('floating'); place(); } renderSugg(); });
+      ta.addEventListener('blur', () => { pane.classList.remove('floating'); pane.style.bottom = ''; pane.style.height = ''; });
+      if (vv) { vv.addEventListener('resize', place); vv.addEventListener('scroll', place); }
+      renderSugg();
+    }
+    return { mount };
+  })();
 
   function bindGrid(gv) {
     const el = gv.el;
@@ -574,11 +725,23 @@
       const cur = game.marks[+cell.dataset.a * game.P.M + +cell.dataset.b];
       const rec = []; apply(cell, cur === 1 ? 0 : 1, rec); commit(rec);
     });
+    // Mode précision (écran tactile + petites cases) : un toucher sélectionne, un second applique
+    const precise = (e) => e.pointerType !== 'mouse' && settings.precision !== false && (gv.cs || 30) < 24;
     el.addEventListener('pointerdown', e => {
       const cell = e.target.closest('.cell'); if (!cell || e.button === 2) return;
       hideHint(false);
       const cur = game.marks[+cell.dataset.a * game.P.M + +cell.dataset.b];
       const tool = settings.tool;
+      if (precise(e)) {
+        press = { cell, x: e.clientX, y: e.clientY, cur, long: false, precise: true };
+        press.timer = setTimeout(() => {
+          if (!press) return;
+          press.long = true; Sel.select(gv, press.cell);
+          const rec = []; apply(press.cell, press.cur === 1 ? 0 : 1, rec); commit(rec);
+          if (navigator.vibrate) navigator.vibrate(18);
+        }, 450);
+        return;
+      }
       if (e.pointerType !== 'mouse' && tool === 'cycle') {
         // tactile en mode auto : appui court = alterner, appui long = ●
         press = { cell, x: e.clientX, y: e.clientY, cur, long: false };
@@ -609,7 +772,10 @@
     const end = () => {
       if (press) {
         clearTimeout(press.timer);
-        if (!press.long) { const rec = []; apply(press.cell, valFor(press.cur, 'cycle'), rec); commit(rec); }
+        if (!press.long) {
+          if (press.precise && Sel.cell !== press.cell) Sel.select(gv, press.cell);
+          else { const rec = []; apply(press.cell, valFor(press.cur, press.precise ? settings.tool : 'cycle'), rec); commit(rec); if (press.precise) Sel.refresh(); }
+        }
         press = null;
       }
       if (drag) { commit(drag.rec); drag = null; }
@@ -617,6 +783,58 @@
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', () => { if (press) clearTimeout(press.timer); press = null; if (drag) { commit(drag.rec); drag = null; } });
   }
+
+  // Barre de sélection (mode précision)
+  const Sel = {
+    cell: null, bar: null, gv: null,
+    select(gv, cell) {
+      this.gv = gv; this.clear(true); this.cell = cell;
+      cell.classList.add('sel');
+      const a = +cell.dataset.a, b = +cell.dataset.b;
+      (gv.byRow.get(a) || []).forEach(c => c !== cell && c.classList.add('hx'));
+      (gv.byCol.get(b) || []).forEach(c => c !== cell && c.classList.add('hx'));
+      [gv.rowEls.get(a), gv.colEls.get(b)].forEach(x => x && x.classList.add('hx'));
+      if (!this.bar) {
+        this.bar = h(`<div class="selbar" role="toolbar" aria-label="Case sélectionnée">
+          <div class="pair"></div>
+          <div class="acts"><button data-v="-1" class="sv-n" aria-label="Croix">✕</button><button data-v="1" class="sv-y" aria-label="Point">●</button><button data-v="0" aria-label="Effacer">⌫</button>
+          <span class="arr"><button data-m="l" aria-label="Gauche">${ic('left')}</button><button data-m="u" aria-label="Haut">${ic('up')}</button><button data-m="d" aria-label="Bas">${ic('down')}</button><button data-m="r" aria-label="Droite">${ic('right')}</button></span>
+          <button data-x aria-label="Fermer">${ic('x')}</button></div></div>`);
+        document.body.appendChild(this.bar);
+        this.bar.addEventListener('click', e => {
+          const btn = e.target.closest('button'); if (!btn || !this.cell) return;
+          if (btn.dataset.x != null) return this.clear();
+          if (btn.dataset.v != null) { const rec = []; setMark(game, +this.cell.dataset.a, +this.cell.dataset.b, +btn.dataset.v, rec); commit(rec); this.refresh(); return; }
+          if (btn.dataset.m) this.move(btn.dataset.m);
+        });
+      }
+      this.refresh();
+    },
+    refresh() {
+      if (!this.cell || !this.bar) return;
+      const P = game.P, a = +this.cell.dataset.a, b = +this.cell.dataset.b, v = game.marks[a * P.M + b];
+      this.bar.querySelector('.pair').innerHTML = `<span class="chip c${C.catOf(P, a)}">${esc(C.labelOf(P, a))}</span><span class="x">×</span><span class="chip c${C.catOf(P, b)}">${esc(C.labelOf(P, b))}</span><span class="st ${v === 1 ? 'y' : v === -1 ? 'n' : ''}">${v === 1 ? '●' : v === -1 ? '✕' : '—'}</span>`;
+    },
+    move(d) {
+      const c = this.cell, gv = this.gv;
+      const dr = d === 'u' ? -1 : d === 'd' ? 1 : 0, dc = d === 'l' ? -1 : d === 'r' ? 1 : 0;
+      const all = Array.from(gv.cells.values());
+      let best = null, bd = 1e9;
+      all.forEach(x => {
+        const r = x._r - c._r, k = x._c - c._c;
+        if ((dr && Math.sign(r) !== dr) || (dc && Math.sign(k) !== dc)) return;
+        if (dr && k !== 0) return; if (dc && r !== 0) return;
+        const dist = Math.abs(r) + Math.abs(k); if (dist && dist < bd) { bd = dist; best = x; }
+      });
+      if (best) this.select(gv, best);
+    },
+    clear(keepBar) {
+      if (this.cell) { this.cell.classList.remove('sel'); }
+      if (this.gv) $$('.hx', this.gv.el).forEach(e => e.classList.remove('hx'));
+      this.cell = null;
+      if (!keepBar && this.bar) { this.bar.remove(); this.bar = null; }
+    },
+  };
 
   function startTimer() {
     clearInterval(timerId);
@@ -667,6 +885,7 @@
       cmp: 'Une comparaison réduit les valeurs possibles.',
       cross: 'Passez par une troisième catégorie : deux éléments n’y ont aucun partenaire commun.',
       clue3: 'Un indice à deux options exclut tout ce qui n’est compatible avec aucune des deux.',
+      cond: 'Un indice « si… alors… » peut maintenant servir (pensez à la contraposée).',
       subset: 'Quelques éléments se partagent exactement autant d’options qu’ils sont nombreux.',
       hypo: 'Il faut tester une hypothèse et chercher la contradiction.',
       disj: 'Envisagez les deux seules possibilités d’une case : elles mènent à la même conclusion.',
@@ -774,13 +993,16 @@
         <button data-a="edit">${ic('wand')}<span>Ouvrir dans le solveur<small>Modifier les indices, analyser</small></span></button>
         <button data-a="export">${ic('download')}<span>Exporter (JSON)</span></button>
       </div>
-      <div style="margin-top:12px">
+      <div class="switch"><span>Taille de la grille<small>Par défaut, elle s’ajuste à l’écran</small></span><span class="btn-row" style="flex-wrap:nowrap"><button class="btn sm" data-zm="-">${ic('zout')}</button><button class="btn sm" data-zm="0">Ajuster</button><button class="btn sm" data-zm="+">${ic('zin')}</button></span></div>
+      <div style="margin-top:4px">
         <label class="switch"><span>Exclusion automatique<small>Poser un ● barre le reste de sa ligne et de sa colonne</small></span><input type="checkbox" class="tg" data-s="autoX" ${settings.autoX ? 'checked' : ''}></label>
+        <label class="switch"><span>Mode précision<small>Sur écran tactile, quand les cases sont petites : un toucher sélectionne la case, une barre permet de la remplir</small></span><input type="checkbox" class="tg" data-s="precision" ${settings.precision !== false ? 'checked' : ''}></label>
         <label class="switch"><span>Croix de repérage<small>Surligner la ligne et la colonne survolées (souris)</small></span><input type="checkbox" class="tg" data-s="cross" ${settings.cross ? 'checked' : ''}></label>
       </div>
       <div style="font-size:12.5px;color:var(--muted);margin-top:10px">Raccourcis : <span class="kbd">Ctrl Z</span> annuler · <span class="kbd">Ctrl Y</span> rétablir · <span class="kbd">H</span> indice · clic droit = ●</div>`,
       { title: 'Options de la partie' });
     s.el.addEventListener('click', e => {
+      const z = e.target.closest('[data-zm]'); if (z) { zoomBy(z.dataset.zm); return; }
       const b = e.target.closest('button[data-a]'); if (!b) return;
       const a = b.dataset.a; s.close();
       if (a === 'sol') openSolution();
@@ -970,14 +1192,19 @@
     const CLUE_TYPES = {
       is: { label: 'A est B (affirmation)', slots: ['A', 'B'] },
       not: { label: 'A n’est pas B (négation)', slots: ['A', 'B'] },
-      either: { label: 'A est B ou C (exclusif)', slots: ['A', 'B', 'C'] },
+      gender: { label: 'A est une femme / un homme', slots: ['A'], g: true },
+      none: { label: 'A n’est ni B, ni C… (exclusions)', slots: ['A', 'B', 'C?', 'D?', 'E?'], list: true },
+      oneof: { label: 'A est B, C ou D (une seule catégorie)', slots: ['A', 'B', 'C', 'D?', 'E?'], list: true },
+      either: { label: 'A est B ou C, mais pas les deux', slots: ['A', 'B', 'C'] },
       pair: { label: 'Parmi A et B, l’un est C, l’autre D', slots: ['A', 'B', 'C', 'D'] },
+      cond: { label: 'Si A est B, alors C est D', slots: ['A', 'B', 'C', 'D'] },
       lt: { label: 'A a une valeur plus petite que B', slots: ['A', 'B'], ord: true },
       diff: { label: 'A a exactement k de moins que B', slots: ['A', 'B'], ord: true, k: true },
       dist: { label: 'A et B ont exactement k d’écart', slots: ['A', 'B'], ord: true, k: true },
-      alldiff: { label: 'Tous différents (3 à 5 éléments)', slots: ['1', '2', '3', '4?', '5?'] },
+      alldiff: { label: 'Tous différents (2 à 5 éléments)', slots: ['1', '2', '3?', '4?', '5?'], list: true, nolead: true },
     };
     let ed = store.get('editor', null);
+    const normEd = () => { if (ed) ed.clues = (ed.clues || []).map(c => c.parts ? c : { parts: [c] }); };
     let lastAnalysis = null;
     function blank() {
       return {
@@ -991,6 +1218,7 @@
       };
     }
     if (!ed) ed = blank();
+    normEd();
     const save = () => store.set('editor', ed);
     const fmtVal = (preset, v) => {
       const pr = T.PRESETS[preset];
@@ -1021,16 +1249,28 @@
         return o;
       });
       const g = (r) => r[0] * N + r[1];
-      const clues = e.clues.map(cl => {
+      const conv = cl => {
         const o = { t: cl.t };
         ['a', 'b', 'c', 'd'].forEach(k => { if (cl[k]) o[k] = g(cl[k]); });
         if (cl.l) o.l = cl.l.map(g);
-        if (cl.o != null) o.o = cl.o; if (cl.k != null) o.k = +cl.k; if (cl.s) o.s = 1;
+        if (cl.o != null) o.o = cl.o; if (cl.k != null) o.k = +cl.k; if (cl.s) o.s = 1; if (cl.g) o.g = cl.g;
+        return o;
+      };
+      const clues = e.clues.map(c => {
+        const parts = (c.parts || [c]).map(conv);
+        const o = parts.length === 1 ? parts[0] : { t: 'multi', parts };
+        if (c.text && c.text.trim()) o.text = c.text.trim();
         return o;
       });
       return { title: e.title, intro: e.intro, entity: 'personne', cats, clues };
     }
-    function clueValid(cl, e) {
+    function clueValid(c, e) {
+      const parts = c.parts || [c];
+      if (!parts.length) return 'indice vide';
+      for (const p of parts) { const err = partValid(p, e); if (err) return err; }
+      return null;
+    }
+    function partValid(cl, e) {
       e = e || ed;
       const refs = ['a', 'b', 'c', 'd'].filter(k => cl[k]).map(k => cl[k]).concat(cl.l || []);
       if (refs.some(r => r[0] >= e.cats.length || r[1] >= e.N)) return 'référence invalide';
@@ -1047,6 +1287,11 @@
         if (t !== 'lt' && !(+cl.k > 0)) return 'l’écart k doit être positif';
       }
       if (t === 'alldiff' && (!cl.l || cl.l.length < 2)) return 'au moins deux éléments';
+      if ((t === 'none' || t === 'oneof') && (!cl.l || !cl.l.length)) return 'choisissez au moins un élément';
+      if ((t === 'none' || t === 'oneof') && cl.l.some(r => r[0] === cat(cl.a))) return 'les éléments doivent être d’une autre catégorie que A';
+      if (t === 'oneof' && cl.l.some(r => r[0] !== cl.l[0][0])) return 'les options doivent être de la même catégorie';
+      if (t === 'cond' && (cat(cl.a) === cat(cl.b) || cat(cl.c) === cat(cl.d))) return 'A/B et C/D doivent être de catégories différentes';
+      if (t === 'gender' && !e.cats.some(c => (T.PRESETS[c.preset] || {}).kind === 'name')) return 'il faut une catégorie de prénoms (avec genres)';
       return null;
     }
     function load(p) {
@@ -1067,15 +1312,20 @@
         }),
         clues: p.clues.map(cl => {
           const r = g => [Math.floor(g / N), g % N];
-          const o = { t: cl.t };
-          ['a', 'b', 'c', 'd'].forEach(k => { if (cl[k] != null) o[k] = r(cl[k]); });
-          if (cl.l) o.l = cl.l.map(r); if (cl.o != null) o.o = cl.o; if (cl.k != null) o.k = cl.k; if (cl.s) o.s = 1;
-          return o;
+          const conv = x => {
+            const o = { t: x.t };
+            ['a', 'b', 'c', 'd'].forEach(k => { if (x[k] != null) o[k] = r(x[k]); });
+            if (x.l) o.l = x.l.map(r); if (x.o != null) o.o = x.o; if (x.k != null) o.k = x.k; if (x.s) o.s = 1; if (x.g) o.g = x.g;
+            return o;
+          };
+          const out = { parts: (cl.t === 'multi' ? cl.parts : [cl]).map(conv) };
+          if (cl.text) out.text = cl.text;
+          return out;
         }),
       };
       // les valeurs ordonnées affichées avec un libellé personnalisé
       ed.cats.forEach(c => { if (c.customTpl) T.PRESETS[c.preset] = Object.assign({ label: 'Personnalisé (' + c.name + ')', custom: true }, c.customTpl); });
-      lastAnalysis = null;
+      lastAnalysis = null; editIdx = null; draft = { parts: [{ t: 'is' }], text: '', custom: false };
       save();
     }
     function restoreCustom() { ed.cats.forEach(c => { if (c.customTpl && !T.PRESETS[c.preset]) T.PRESETS[c.preset] = Object.assign({ label: 'Personnalisé (' + c.name + ')', custom: true }, c.customTpl); }); }
@@ -1155,51 +1405,121 @@
       return ed.clues.map((cl, i) => {
         const err = clueValid(cl);
         let txt; try { txt = err ? '⚠ ' + err : C.clueText(P, p.clues[i]); } catch (e) { txt = '⚠ indice invalide'; }
-        return `<div class="clue-ed" data-i="${i}"><span class="n">${i + 1}</span><span style="${err ? 'color:var(--no)' : ''}">${esc(txt)}</span><span class="acts"><button data-up title="Monter">${ic('up')}</button><button data-down title="Descendre">${ic('down')}</button><button data-rm title="Supprimer">${ic('trash')}</button></span></div>`;
+        const tags = (cl.parts.length > 1 ? `<span class="tag">${cl.parts.length} contraintes</span>` : '') + (cl.text ? '<span class="tag">texte perso</span>' : '');
+        return `<div class="clue-ed ${editIdx === i ? 'editing' : ''}" data-i="${i}"><span class="n">${i + 1}</span><span class="tx" title="Modifier" style="${err ? 'color:var(--no)' : ''}">${esc(txt)}${tags ? '<span class="tags">' + tags + '</span>' : ''}</span><span class="acts"><button data-edit title="Modifier">${ic('edit')}</button><button data-up title="Monter">${ic('up')}</button><button data-down title="Descendre">${ic('down')}</button><button data-rm title="Supprimer">${ic('trash')}</button></span></div>`;
       }).join('');
     }
-    let draft = { t: 'is' };
+    let draft = { parts: [{ t: 'is' }], text: '', custom: false }, editIdx = null;
+    const slotKeysOf = t => {
+      const ty = CLUE_TYPES[t];
+      if (t === 'alldiff') return ['l0', 'l1', 'l2', 'l3', 'l4'];
+      if (ty.list) return ['a', 'l0', 'l1', 'l2', 'l3'];
+      return ['a', 'b', 'c', 'd'].slice(0, ty.slots.length);
+    };
+    function partHTML(pt, j, n) {
+      const ty = CLUE_TYPES[pt.t];
+      const ordCats = ed.cats.map((c, i) => ((T.PRESETS[c.preset] || {}).kind === 'ord' ? i : -1)).filter(i => i >= 0);
+      if (ty.ord && (pt.o == null || !ordCats.includes(pt.o))) pt.o = ordCats[0];
+      const keys = slotKeysOf(pt.t);
+      return `<div class="part" data-j="${j}">
+        <div class="row"><select class="inp" data-f="t">${Object.keys(CLUE_TYPES).map(k => `<option value="${k}" ${k === pt.t ? 'selected' : ''}>${esc(CLUE_TYPES[k].label)}</option>`).join('')}</select>
+          ${n > 1 ? `<button class="icon-btn" data-rmpart title="Retirer cette contrainte" style="flex:0 0 auto">${ic('trash')}</button>` : ''}</div>
+        ${ty.ord ? `<div class="row"><select class="inp" data-f="o">${ordCats.length ? ordCats.map(i => `<option value="${i}" ${pt.o === i ? 'selected' : ''}>Selon « ${esc(ed.cats[i].name)} »</option>`).join('') : '<option value="">Aucune catégorie numérique</option>'}</select>
+          ${ty.k ? `<input class="inp" data-f="k" type="number" min="1" step="any" placeholder="écart k" value="${pt.k != null ? pt.k : ''}">` : ''}
+          ${pt.t !== 'dist' ? `<label class="chk"><input type="checkbox" data-f="s" ${pt.s ? 'checked' : ''}> formulation inversée</label>` : ''}</div>` : ''}
+        <div class="row">${keys.map((k, i) => {
+          const lab = ty.slots[i];
+          const cur = k[0] === 'l' ? (pt.l || [])[+k[1]] : pt[k];
+          return `<select class="inp" data-slot="${k}"><option value="">${esc(lab.replace('?', '') + (lab.endsWith('?') ? ' (facultatif)' : ''))}</option>${itemOptions(cur, ty.ord ? (ci) => ci !== pt.o : null)}</select>`;
+        }).join('')}</div>
+        ${ty.g ? `<div class="row"><select class="inp" data-f="g"><option value="f" ${pt.g !== 'm' ? 'selected' : ''}>est une femme (exclut les prénoms masculins)</option><option value="m" ${pt.g === 'm' ? 'selected' : ''}>est un homme (exclut les prénoms féminins)</option></select></div>` : ''}
+      </div>`;
+    }
+    function autoText(clue) {
+      try { const tmp = JSON.parse(JSON.stringify(ed)); tmp.clues = [{ parts: clue.parts }]; const p = build(tmp); return C.clueText(C.compile(p), p.clues[0]); }
+      catch (e) { return ''; }
+    }
     function renderBuilder() {
       const b = $('#builder'); if (!b) return;
-      const ty = CLUE_TYPES[draft.t];
-      const ordCats = ed.cats.map((c, i) => ((T.PRESETS[c.preset] || {}).kind === 'ord' ? i : -1)).filter(i => i >= 0);
-      if (ty.ord && (draft.o == null || !ordCats.includes(draft.o))) draft.o = ordCats[0];
-      const slotKeys = draft.t === 'alldiff' ? ['l0', 'l1', 'l2', 'l3', 'l4'] : ['a', 'b', 'c', 'd'].slice(0, ty.slots.length);
+      const n = draft.parts.length;
+      b.classList.toggle('editing', editIdx != null);
       b.innerHTML = `
-        <div class="lbl">Ajouter un indice</div>
-        <div class="row"><select class="inp" id="bType">${Object.keys(CLUE_TYPES).map(k => `<option value="${k}" ${k === draft.t ? 'selected' : ''}>${esc(CLUE_TYPES[k].label)}</option>`).join('')}</select></div>
-        ${ty.ord ? `<div class="row"><select class="inp" id="bOrd">${ordCats.length ? ordCats.map(i => `<option value="${i}" ${draft.o === i ? 'selected' : ''}>Selon « ${esc(ed.cats[i].name)} »</option>`).join('') : '<option value="">Aucune catégorie numérique</option>'}</select>
-          ${ty.k ? `<input class="inp" id="bK" type="number" min="1" step="any" placeholder="écart k" value="${draft.k != null ? draft.k : ''}">` : ''}
-          ${draft.t !== 'dist' ? `<label style="display:flex;gap:6px;align-items:center;font-size:13.5px;flex:0 0 auto"><input type="checkbox" id="bS" ${draft.s ? 'checked' : ''}> formulation inversée</label>` : ''}</div>` : ''}
-        <div class="row">${slotKeys.map((k, i) => {
-          const lab = ty.slots[i];
-          const cur = draft.t === 'alldiff' ? (draft.l || [])[i] : draft[k];
-          return `<select class="inp" data-slot="${k}"><option value="">${esc(lab.replace('?', '') + (lab.endsWith('?') ? ' (facultatif)' : ''))}</option>${itemOptions(cur, ty.ord ? (ci) => ci !== draft.o : null)}</select>`;
-        }).join('')}</div>
-        <div class="prev" id="bPrev"></div>
-        <div class="row" style="justify-content:flex-end"><button class="btn primary" id="bAdd" style="flex:0 0 auto">${ic('plus')}Ajouter</button></div>`;
+        <div class="lbl">${editIdx != null ? 'Modifier l’indice n°' + (editIdx + 1) : 'Nouvel indice'}</div>
+        ${draft.parts.map((pt, j) => partHTML(pt, j, n)).join('<div class="and">et</div>')}
+        <button class="btn sm ghost" data-addpart style="justify-self:start">${ic('plus')}Ajouter une contrainte à cet indice</button>
+        <div class="field"><label>Texte de l’indice <span class="tag ${draft.custom ? 'on' : ''}">${draft.custom ? 'personnalisé' : 'automatique'}</span></label>
+          <textarea class="inp txt" data-text rows="2" placeholder="Texte affiché aux joueurs">${esc(draft.custom ? draft.text : '')}</textarea>
+          <div class="txt-foot"><span>Rédigez-le comme vous voulez : seul le texte est montré, le solveur utilise les contraintes ci-dessus.</span>${draft.custom ? '<button class="linkbtn" data-autotext>Revenir au texte automatique</button>' : ''}</div></div>
+        <div class="b-err" data-err></div>
+        <div class="row" style="justify-content:flex-end">${editIdx != null ? '<button class="btn" data-cancel style="flex:0 0 auto">Annuler</button>' : ''}<button class="btn primary" data-save style="flex:0 0 auto">${editIdx != null ? ic('check') + 'Enregistrer' : ic('plus') + 'Ajouter'}</button></div>`;
+      const ta = $('[data-text]', b);
       const read = () => {
-        const d = { t: draft.t };
-        if (draft.t === 'alldiff') d.l = $$('[data-slot]', b).map(s => s.value).filter(Boolean).map(v => v.split(',').map(Number));
-        else slotKeys.forEach(k => { const v = $('[data-slot="' + k + '"]', b).value; if (v) d[k] = v.split(',').map(Number); });
-        if (ty.ord) { const o = $('#bOrd', b).value; d.o = o === '' ? null : +o; const kk = $('#bK', b); if (kk) d.k = kk.value === '' ? null : +kk.value; const s = $('#bS', b); if (s && s.checked) d.s = 1; }
-        return d;
+        draft.parts = $$('.part', b).map((el, j) => {
+          const old = draft.parts[j] || {};
+          const t = $('[data-f="t"]', el).value;
+          if (t !== old.t) return { t };
+          const d = { t };
+          slotKeysOf(t).forEach(k => {
+            const v = $('[data-slot="' + k + '"]', el).value; if (!v) return;
+            const r = v.split(',').map(Number);
+            if (k[0] === 'l') (d.l = d.l || []).push(r); else d[k] = r;
+          });
+          const o = $('[data-f="o"]', el); if (o) d.o = o.value === '' ? null : +o.value;
+          const k = $('[data-f="k"]', el); if (k) d.k = k.value === '' ? null : +k.value;
+          const sx = $('[data-f="s"]', el); if (sx && sx.checked) d.s = 1;
+          const g = $('[data-f="g"]', el); if (g) d.g = g.value;
+          return d;
+        });
       };
-      const preview = () => {
-        const d = read(); draft = d;
-        const prev = $('#bPrev', b), add = $('#bAdd', b);
-        const missing = draft.t === 'alldiff' ? (d.l.length < 2) : slotKeys.some(k => !d[k]);
-        if (missing) { prev.textContent = 'Choisissez les éléments…'; add.disabled = true; return; }
-        const err = clueValid(d);
-        if (err) { prev.textContent = '⚠ ' + err; add.disabled = true; return; }
-        try { const tmp = JSON.parse(JSON.stringify(ed)); tmp.clues = [d]; const p = build(tmp); prev.textContent = C.clueText(C.compile(p), p.clues[0]); add.disabled = false; }
-        catch (e) { prev.textContent = '⚠ ' + e.message; add.disabled = true; }
+      const validate = () => {
+        const errEl = $('[data-err]', b), sv = $('[data-save]', b);
+        const missing = draft.parts.some(pt => {
+          const keys = slotKeysOf(pt.t);
+          if (pt.t === 'alldiff') return !pt.l || pt.l.length < 2;
+          return keys.filter(k => k[0] !== 'l').some(k => !pt[k]) || (CLUE_TYPES[pt.t].list && !(pt.l && pt.l.length)) || (pt.t === 'oneof' && (!pt.l || pt.l.length < 2));
+        });
+        const err = missing ? 'Choisissez les éléments…' : clueValid({ parts: draft.parts });
+        errEl.textContent = err ? (missing ? err : '⚠ ' + err) : (draft.custom ? 'Texte personnalisé : vérifiez qu’il dit bien la même chose que les contraintes.' : '');
+        errEl.classList.toggle('bad', !!err && !missing);
+        sv.disabled = !!err;
+        if (!draft.custom) ta.placeholder = err ? 'Le texte apparaîtra ici…' : autoText(draft);
+        if (!draft.custom) ta.value = err ? '' : autoText(draft);
       };
-      $('#bType', b).onchange = e => { draft = { t: e.target.value }; renderBuilder(); };
-      b.addEventListener('change', e => { if (e.target.id !== 'bType') preview(); });
-      b.addEventListener('input', e => { if (e.target.id === 'bK') preview(); });
-      $('#bAdd', b).onclick = () => { ed.clues.push(read()); save(); lastAnalysis = null; const t = draft.t; draft = { t }; refreshClues(); renderBuilder(); };
-      preview();
+      b.onchange = e => {
+        if (e.target.matches('[data-text]')) return;
+        const typeChanged = e.target.matches('[data-f="t"]');
+        read();
+        if (typeChanged) renderBuilder(); else validate();
+      };
+      b.oninput = e => {
+        if (e.target.matches('[data-text]')) { draft.custom = true; draft.text = e.target.value; const tag = $('.field .tag', b); if (tag) { tag.textContent = 'personnalisé'; tag.classList.add('on'); } return; }
+        if (e.target.matches('[data-f="k"]')) { read(); validate(); }
+      };
+      b.onclick = e => {
+        if (e.target.closest('[data-addpart]')) { read(); draft.parts.push({ t: 'gender', a: draft.parts[0] && draft.parts[0].a, g: 'f' }); renderBuilder(); }
+        else if (e.target.closest('[data-rmpart]')) { read(); draft.parts.splice(+e.target.closest('.part').dataset.j, 1); renderBuilder(); }
+        else if (e.target.closest('[data-autotext]')) { draft.custom = false; draft.text = ''; renderBuilder(); }
+        else if (e.target.closest('[data-cancel]')) { editIdx = null; draft = { parts: [{ t: draft.parts[0].t }], text: '', custom: false }; refreshClues(); renderBuilder(); }
+        else if (e.target.closest('[data-save]')) {
+          read();
+          const clue = { parts: JSON.parse(JSON.stringify(draft.parts)) };
+          if (draft.custom && draft.text.trim()) clue.text = draft.text.trim();
+          if (editIdx != null) ed.clues[editIdx] = clue; else ed.clues.push(clue);
+          const wasEdit = editIdx != null;
+          editIdx = null; save(); lastAnalysis = null;
+          draft = { parts: [{ t: clue.parts[0].t }], text: '', custom: false };
+          refreshClues(); renderBuilder();
+          toast(wasEdit ? 'Indice modifié' : 'Indice ajouté');
+        }
+      };
+      validate();
+    }
+    function editClue(i) {
+      const c = ed.clues[i];
+      editIdx = i;
+      draft = { parts: JSON.parse(JSON.stringify(c.parts)), text: c.text || '', custom: !!c.text };
+      refreshClues(); renderBuilder();
+      const b = $('#builder'); if (b) b.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
     function refreshClues() {
       const el = $('#edClues'); if (el) el.innerHTML = clueListHTML();
@@ -1240,11 +1560,12 @@
         if (e.target.closest('[data-del]')) askConfirm('Supprimer cette catégorie et les indices qui l’utilisent ?', 'Supprimer', true).then(ok => {
           if (!ok) return;
           const uses = cl => ['a', 'b', 'c', 'd'].some(k => cl[k] && cl[k][0] === ci) || (cl.l || []).some(r => r[0] === ci) || cl.o === ci;
-          ed.clues = ed.clues.filter(cl => !uses(cl)).map(cl => {
+          ed.clues = ed.clues.filter(c => !c.parts.some(uses)).map(c => Object.assign({}, c, { parts: c.parts.map(cl => {
             const sh = r => r && r[0] > ci ? [r[0] - 1, r[1]] : r;
             const o = Object.assign({}, cl); ['a', 'b', 'c', 'd'].forEach(k => { if (o[k]) o[k] = sh(o[k]); }); if (o.l) o.l = o.l.map(sh); if (o.o != null && o.o > ci) o.o--;
             return o;
-          });
+          }) }));
+          editIdx = null;
           ed.cats.splice(ci, 1); save(); lastAnalysis = null; render(main);
         });
       });
@@ -1252,13 +1573,14 @@
       $('#edClues').addEventListener('click', e => {
         const row = e.target.closest('.clue-ed'); if (!row) return;
         const i = +row.dataset.i;
-        if (e.target.closest('[data-rm]')) ed.clues.splice(i, 1);
+        if (e.target.closest('[data-edit]') || e.target.closest('.tx')) { editClue(i); return; }
+        if (e.target.closest('[data-rm]')) { ed.clues.splice(i, 1); if (editIdx === i) { editIdx = null; draft = { parts: [{ t: 'is' }], text: '', custom: false }; renderBuilder(); } else if (editIdx > i) editIdx--; }
         else if (e.target.closest('[data-up]') && i > 0) ed.clues.splice(i - 1, 0, ed.clues.splice(i, 1)[0]);
         else if (e.target.closest('[data-down]') && i < ed.clues.length - 1) ed.clues.splice(i + 1, 0, ed.clues.splice(i, 1)[0]);
         else return;
         save(); lastAnalysis = null; refreshClues();
       });
-      $('#edNew').onclick = () => askConfirm('Repartir d’un integramme vierge ?', 'Nouveau').then(ok => { if (ok) { ed = blank(); ed.clues = []; save(); lastAnalysis = null; render(main); } });
+      $('#edNew').onclick = () => askConfirm('Repartir d’un integramme vierge ?', 'Nouveau').then(ok => { if (ok) { ed = blank(); ed.clues = []; editIdx = null; save(); lastAnalysis = null; render(main); } });
       $('#edExport').onclick = () => { try { download('integramme.json', JSON.stringify(build(), null, 1)); } catch (e) { toast(e.message); } };
       $('#edImport').onclick = () => {
         const s = sheet(`<p style="margin-top:0;color:var(--ink-2)">Collez un fichier JSON exporté depuis Integramme, ou choisissez un fichier.</p>
@@ -1314,7 +1636,7 @@
   function currentRoute() { return (location.hash.replace(/^#\/?/, '').split('?')[0]) || ''; }
   function parseQuery() { const q = location.hash.split('?')[1] || ''; const o = {}; q.split('&').forEach(kv => { if (!kv) return; const [k, v] = kv.split('='); o[k] = decodeURIComponent(v || ''); }); return o; }
   function render() {
-    hideHint();
+    hideHint(); Sel.clear();
     let r = currentRoute();
     const main = $('#view');
     if (!r) { r = loadCurrent() ? 'jouer' : 'creer'; history.replaceState(null, '', '#/' + r); }
@@ -1323,6 +1645,8 @@
     void main.offsetWidth;
     window.onresize = null;
     if (r === 'jouer') viewPlay(main, parseQuery());
+    if (r !== 'jouer') main.onclick = null;
+    if (r === 'jouer') { /* déjà traité */ }
     else if (r === 'creer') viewCreate(main, parseQuery(), !loadCurrent());
     else if (r === 'editeur') Editor.render(main);
     else if (r === 'methode') { main.classList.remove('has-playbar'); window.Method.render(main, { GridView, C, ic }); }

@@ -1,5 +1,5 @@
 /* Integramme — service worker : fonctionnement hors ligne */
-const VERSION = 'integramme-v1';
+const VERSION = 'integramme-v2';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/app.css',
   './js/core.js', './js/themes.js', './js/generator.js', './js/method.js', './js/app.js', './js/worker.js',

@@ -27,7 +27,28 @@
   function compile(p) {
     const K = p.cats.length, N = p.cats[0].items.length, M = K * N;
     const vals = p.cats.map(c => c.kind === 'ord' ? c.items.map(it => +it.v) : null);
-    return { p, K, N, M, vals, ent: p.entity || 'personne' };
+    const P = { p, K, N, M, vals, ent: p.entity || 'personne' };
+    P.atoms = [];
+    (p.clues || []).forEach((cl, ci) => partsOf(P, cl).forEach(a => P.atoms.push({ cl: a, ci })));
+    return P;
+  }
+
+  // Un indice peut regrouper plusieurs contraintes (« atomes »)
+  function partsOf(P, cl) {
+    const list = cl.t === 'multi' ? (cl.parts || []) : [cl];
+    const out = [];
+    list.forEach(a => {
+      if (a.t === 'multi') out.push(...partsOf(P, a));
+      else if (a.t === 'gender') out.push(genderAtom(P, a));
+      else out.push(a);
+    });
+    return out;
+  }
+  // « X est une femme » = X n'est aucun des prénoms masculins
+  function genderAtom(P, a) {
+    const l = [];
+    P.p.cats.forEach((c, ci) => { if (c.kind === 'name') c.items.forEach((it, i) => { if ((it.g || 'm') !== a.g) l.push(ci * P.N + i); }); });
+    return { t: 'none', a: a.a, l, fromGender: a.g };
   }
 
   const catOf = (P, g) => (g / P.N) | 0;
@@ -80,9 +101,71 @@
   const isName = (P, g) => P.p.cats[catOf(P, g)].kind === 'name';
   const NUM = ['zéro', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit'];
 
+  // préposition répétée dans les énumérations (« à Lyon ou à Nice »)
+  function prepOf(t) {
+    const before = (String(t).split('{x}')[0].trim().split(/\s+/).pop() || '').toLowerCase();
+    return ['à', 'au', 'aux', 'de', 'du', 'des', 'dans', 'pour', 'sur', 'depuis', 'en', 'avec', 'chez'].includes(before) ? before + ' ' : '';
+  }
+  // liste d'éléments d'une même catégorie dans un prédicat : « habite à Lyon, à Nice ou à Paris »
+  function predList(P, l, gen, neg, sep) {
+    const c = P.p.cats[catOf(P, l[0])];
+    if (neg && l.length > 1) {
+      // « n'habite ni à Lyon ni à Nice », « n'avait ni la corde ni la canne »
+      const m = c.tpl.neg.match(/^(.*?)\bpas\s+((?:à|au|aux|de|du|des|dans|pour|sur|depuis|en|avec|chez)\s+)?\{xn?\}(.*)$/);
+      if (m) {
+        const mid = m[2] || '';
+        return fill(m[1] + l.map(g => 'ni ' + mid + txtOf(P, g)).join(' ') + m[3], { e: gen === 'f' ? 'e' : '' });
+      }
+    }
+    const t = neg ? c.tpl.neg : c.tpl.pred, prep = prepOf(t);
+    const xs = l.slice().sort((x, y) => P.vals[catOf(P, x)] ? P.vals[catOf(P, x)][idxOf(P, x)] - P.vals[catOf(P, y)][idxOf(P, y)] : 0)
+      .map((g, i) => (i ? prep : '') + (neg ? (itemOf(P, g).txtNeg || txtOf(P, g)) : txtOf(P, g)));
+    const x = xs.length > 1 ? xs.slice(0, -1).join(', ') + sep + xs[xs.length - 1] : xs[0];
+    return fill(t, { x, xn: x, e: gen === 'f' ? 'e' : '' });
+  }
+  function joinAnd(list) { return list.length > 1 ? list.slice(0, -1).join(', ') + ' et ' + list[list.length - 1] : list[0] || ''; }
+  // Partie « prédicat » d'une contrainte portant sur un sujet donné (pour fusionner les indices)
+  function predicateFor(P, part, subj) {
+    const g = genderOf(P, subj);
+    const other = (x, y) => x === subj ? y : y === subj ? x : null;
+    if (part.t === 'is' || part.t === 'not') { const o = other(part.a, part.b); if (o == null) return null; return predOf(P, o, g, part.t === 'not'); }
+    if (part.t === 'gender' && part.a === subj) return 'est ' + (part.g === 'f' ? 'une femme' : 'un homme');
+    if ((part.t === 'none' || part.t === 'oneof') && part.a === subj) {
+      const sameCat = part.l.every(x => catOf(P, x) === catOf(P, part.l[0]));
+      if (part.t === 'oneof' && sameCat) return predList(P, part.l, g, false, ' ou ');
+      if (part.t === 'none' && sameCat) return predList(P, part.l, g, true, ' ni ');
+      if (part.t === 'none') return joinAnd(part.l.map(x => predOf(P, x, g, true)));
+    }
+    return null;
+  }
+
   function clueText(P, cl) {
+    if (cl.text && String(cl.text).trim()) return String(cl.text).trim();
     let a = cl.a, b = cl.b;
     switch (cl.t) {
+      case 'multi': {
+        const parts = cl.parts || [];
+        // sujet commun ?
+        const cand = new Set();
+        parts.forEach(x => ['a', 'b'].forEach(k => { if (x[k] != null) cand.add(x[k]); }));
+        let best = null;
+        for (const sj of cand) {
+          const preds = parts.map(x => predicateFor(P, x, sj));
+          if (preds.every(Boolean) && (!best || (isName(P, sj) && !isName(P, best.sj)))) best = { sj, preds };
+        }
+        if (best) return fr(refOf(P, best.sj) + ' ' + joinAnd(best.preds) + '.');
+        return parts.map(x => clueText(P, x)).join(' ');
+      }
+      case 'gender': return fr(refOf(P, a) + ' est ' + (cl.g === 'f' ? 'une femme' : 'un homme') + '.');
+      case 'none': case 'oneof': {
+        if (cl.t === 'oneof' && !isName(P, a) && cl.l.every(x => isName(P, x)))
+          return fr(cl.l.map(x => refOf(P, x)).join(cl.l.length > 2 ? ', ' : ' ou ').replace(/, ([^,]*)$/, ' ou $1') + ' ' + predOf(P, a, 'm') + '.');
+        const p = predicateFor(P, cl, a);
+        if (p) return fr(refOf(P, a) + ' ' + p + '.');
+        return fr(refOf(P, a) + ' correspond à l’un de ces éléments : ' + cl.l.map(x => labelOf(P, x)).join(', ') + '.');
+      }
+      case 'cond':
+        return fr('Si ' + refOf(P, a) + ' ' + predOf(P, b, genderOf(P, a)) + ', alors ' + refOf(P, cl.c) + ' ' + predOf(P, cl.d, genderOf(P, cl.c)) + '.');
       case 'is': case 'not': {
         if (isName(P, b) && !isName(P, a)) { const t = a; a = b; b = t; }
         return fr(refOf(P, a) + ' ' + predOf(P, b, genderOf(P, a), cl.t === 'not') + '.');
@@ -90,15 +173,7 @@
       case 'either': {
         const g = genderOf(P, a), same = catOf(P, cl.b) === catOf(P, cl.c);
         if (same && isName(P, cl.b) && !isName(P, a)) return fr(refOf(P, cl.b) + ' ou ' + refOf(P, cl.c) + ' ' + predOf(P, a, 'm') + '.');
-        if (same) {
-          const t = P.p.cats[catOf(P, cl.b)].tpl.pred;
-          const before = (t.split('{x}')[0].trim().split(/\s+/).pop() || '').toLowerCase();
-          const prep = ['à', 'au', 'aux', 'de', 'du', 'des', 'dans', 'pour', 'sur', 'depuis', 'en', 'avec', 'chez'].includes(before) ? before + ' ' : '';
-          let y1 = cl.b, y2 = cl.c;
-          const oc = catOf(P, cl.b);
-          if (P.vals[oc] && P.vals[oc][idxOf(P, y1)] > P.vals[oc][idxOf(P, y2)]) { y1 = cl.c; y2 = cl.b; }
-          return fr(refOf(P, a) + ' ' + fill(t, { x: txtOf(P, y1) + ' ou ' + prep + txtOf(P, y2), e: g === 'f' ? 'e' : '' }) + '.');
-        }
+        if (same) return fr(refOf(P, a) + ' ' + predList(P, [cl.b, cl.c], g, false, ' ou ') + '.');
         return fr(refOf(P, a) + ' ' + predOf(P, cl.b, g) + ' ou ' + predOf(P, cl.c, g) + ', mais pas les deux.');
       }
       case 'pair': {
@@ -219,6 +294,15 @@
       case 'lt': case 'diff': case 'dist':
         if (diffCat(cl.a, cl.b)) out.push([cl.a, cl.b, -1]);
         break;
+      case 'none':
+        cl.l.forEach(g => { if (diffCat(cl.a, g)) out.push([cl.a, g, -1]); });
+        break;
+      case 'oneof': {
+        const c = catOf(P, cl.l[0]);
+        if (cl.l.every(g => catOf(P, g) === c) && c !== catOf(P, cl.a))
+          for (let i = 0; i < P.N; i++) { const y = c * P.N + i; if (!cl.l.includes(y)) out.push([cl.a, y, -1]); }
+        break;
+      }
     }
     return out;
   }
@@ -233,10 +317,10 @@
 
   // Niveau 1 — lecture directe des indices
   R.clue = function (S, emit) {
-    const P = S.P, cl = P.p.clues;
+    const P = S.P, cl = P.atoms;
     for (let i = 0; i < cl.length; i++) {
-      const imp = clueDirect(P, cl[i]).filter(([a, b, v]) => S.get(a, b) !== v);
-      if (imp.length && emit({ r: 'clue', lv: 1, ci: i, ch: imp })) return true;
+      const imp = clueDirect(P, cl[i].cl).filter(([a, b, v]) => S.get(a, b) !== v);
+      if (imp.length && emit({ r: 'clue', lv: 1, ci: P.atoms[i].ci, ai: i, ch: imp })) return true;
     }
     return false;
   };
@@ -297,17 +381,24 @@
 
   // Niveau 2 — logique propre à chaque indice (soit/soit, l'un/l'autre, comparaisons)
   R.clue2 = function (S, emit) {
-    const P = S.P, clues = P.p.clues;
+    const P = S.P, clues = P.atoms;
     for (let i = 0; i < clues.length; i++) {
-      const cl = clues[i];
-      if (cl.t === 'either') {
+      const cl = clues[i].cl;
+      if (cl.t === 'cond') {
+        // Si a = b alors c = d (et sa contraposée)
+        const p1 = S.get(cl.a, cl.b), q1 = S.get(cl.c, cl.d);
+        let ch = null, why = null;
+        if (p1 === 1 && q1 !== 1) { ch = [[cl.c, cl.d, 1]]; why = 'mp'; }
+        else if (q1 === -1 && p1 !== -1) { ch = [[cl.a, cl.b, -1]]; why = 'mt'; }
+        if (ch && emit({ r: 'cond', lv: 2, ci: P.atoms[i].ci, ai: i, why, ch })) return true;
+      } else if (cl.t === 'either') {
         const gb = S.get(cl.a, cl.b), gc = S.get(cl.a, cl.c);
         let ch = null, why = null;
         if (gb === -1 && gc !== 1) { ch = [[cl.a, cl.c, 1]]; why = 'bNo'; }
         else if (gc === -1 && gb !== 1) { ch = [[cl.a, cl.b, 1]]; why = 'cNo'; }
         else if (gb === 1 && gc !== -1) { ch = [[cl.a, cl.c, -1]]; why = 'bYes'; }
         else if (gc === 1 && gb !== -1) { ch = [[cl.a, cl.b, -1]]; why = 'cYes'; }
-        if (ch && emit({ r: 'either', lv: 2, ci: i, why, ch })) return true;
+        if (ch && emit({ r: 'either', lv: 2, ci: P.atoms[i].ci, ai: i, why, ch })) return true;
       } else if (cl.t === 'pair') {
         const { a, b, c, d } = cl;
         const evA = S.get(a, c) === 1 || S.get(b, d) === 1 || S.get(a, d) === -1 || S.get(b, c) === -1;
@@ -317,7 +408,7 @@
         else if (evB) want = [[a, d, 1], [b, c, 1], [a, c, -1], [b, d, -1]];
         if (want) {
           const ch = want.filter(([x, y, v]) => S.get(x, y) !== v);
-          if (ch.length && emit({ r: 'pair', lv: 2, ci: i, cfg: evA ? 'A' : 'B', ch })) return true;
+          if (ch.length && emit({ r: 'pair', lv: 2, ci: P.atoms[i].ci, ai: i, cfg: evA ? 'A' : 'B', ch })) return true;
         }
       } else if (cl.t === 'lt' || cl.t === 'diff' || cl.t === 'dist') {
         const o = cl.o, V = P.vals[o];
@@ -326,7 +417,7 @@
         const rb = vb.filter(j => !va.some(i => i !== j && cmpOk(cl, V[i], V[j])));
         if (ra.length || rb.length) {
           const ch = ra.map(i => [cl.a, o * P.N + i, -1]).concat(rb.map(j => [cl.b, o * P.N + j, -1]));
-          if (emit({ r: 'cmp', lv: 2, ci: i, va, vb, ra, rb, ch })) return true;
+          if (emit({ r: 'cmp', lv: 2, ci: P.atoms[i].ci, ai: i, va, vb, ra, rb, ch })) return true;
         }
       }
     }
@@ -362,9 +453,9 @@
 
   // Niveau 3 — conséquences indirectes des indices « soit/soit » et « l'un/l'autre »
   R.clue3 = function (S, emit) {
-    const P = S.P, clues = P.p.clues, M = P.M;
+    const P = S.P, clues = P.atoms, M = P.M;
     for (let i = 0; i < clues.length; i++) {
-      const cl = clues[i];
+      const cl = clues[i].cl;
       let groups = null;
       if (cl.t === 'either') groups = [[cl.a, cl.b, cl.c]];
       else if (cl.t === 'pair') groups = [[cl.a, cl.c, cl.d], [cl.b, cl.c, cl.d], [cl.c, cl.a, cl.b], [cl.d, cl.a, cl.b]];
@@ -379,7 +470,7 @@
           }
         }
       }
-      if (ch.length && emit({ r: 'clue3', lv: 3, ci: i, items, ch })) return true;
+      if (ch.length && emit({ r: 'clue3', lv: 3, ci: P.atoms[i].ci, ai: i, items, ch })) return true;
     }
     return false;
   };
@@ -534,8 +625,9 @@
     const out = [], N = P.N;
     const add = (a, b) => { if (a !== b && catOf(P, a) !== catOf(P, b)) out.push(ckey(P, a, b)); };
     const row = (x, c) => { for (let i = 0; i < N; i++) add(x, c * N + i); };
-    const cl = st.ci != null ? P.p.clues[st.ci] : null;
+    const cl = st.ai != null ? P.atoms[st.ai].cl : null;
     switch (st.r) {
+      case 'cond': add(cl.a, cl.b); add(cl.c, cl.d); break;
       case 'elim': add(st.a, st.b); break;
       case 'single': row(st.x, st.c); break;
       case 'trans': add(st.a, st.b); st.ch.forEach(([x, c]) => add(x === st.a ? st.b : st.a, c)); break;
@@ -629,6 +721,11 @@
     const E = g => ent[g];
     const val = (g, o) => P.vals[o][sol[o][E(g)]];
     switch (cl.t) {
+      case 'multi': return cl.parts.every(x => evalClue(P, x, sol, ent));
+      case 'gender': return evalClue(P, genderAtom(P, cl), sol, ent);
+      case 'none': return cl.l.every(g => E(g) !== E(cl.a));
+      case 'oneof': return cl.l.some(g => E(g) === E(cl.a));
+      case 'cond': return E(cl.a) !== E(cl.b) || E(cl.c) === E(cl.d);
       case 'is': return E(cl.a) === E(cl.b);
       case 'not': return E(cl.a) !== E(cl.b);
       case 'alldiff': return new Set(cl.l.map(E)).size === cl.l.length;
@@ -765,7 +862,7 @@
 
   const TITLES = {
     clue: 'Lecture d’un indice', elim: 'Exclusion ligne / colonne', single: 'Dernière possibilité',
-    trans: 'Transitivité', either: '« Soit… soit… »', pair: '« L’un… l’autre… »', cmp: 'Comparaison',
+    trans: 'Transitivité', either: '« Soit… soit… »', cond: '« Si… alors… »', pair: '« L’un… l’autre… »', cmp: 'Comparaison',
     cross: 'Élimination croisée', clue3: 'Déduction indirecte', subset: 'Sous-ensemble réservé',
     hypo: 'Raisonnement par l’absurde', disj: 'Disjonction de cas', brute: 'Recherche exhaustive',
   };
@@ -784,7 +881,7 @@
     let h = '';
     switch (st.r) {
       case 'clue': {
-        const cl = P.p.clues[st.ci];
+        const cl = P.atoms[st.ai].cl;
         const why = {
           is: 'L’indice affirme directement que ces deux éléments désignent la même ' + E + '.',
           not: 'L’indice affirme directement que ces deux éléments ne désignent pas la même ' + E + '.',
@@ -794,8 +891,12 @@
           lt: 'Une comparaison met forcément en jeu deux ' + E + 's différentes.',
           diff: 'Un écart non nul met forcément en jeu deux ' + E + 's différentes.',
           dist: 'Un écart non nul met forcément en jeu deux ' + E + 's différentes.',
+          none: cl.fromGender ? 'L’indice révèle le genre : ' + (cl.fromGender === 'f' ? 'c’est une femme' : 'c’est un homme') + '. Tous les prénoms ' + (cl.fromGender === 'f' ? 'masculins' : 'féminins') + ' sont donc exclus.'
+            : 'L’indice exclut directement chacun des éléments cités.',
+          oneof: 'L’indice limite les possibilités à quelques options : toutes les autres sont exclues.',
         }[cl.t];
-        h = q + '<p>' + why + '</p>';
+        const multi = P.p.clues[st.ci].t === 'multi';
+        h = q + (multi ? '<p class="why">Cet indice combine plusieurs informations ; on en exploite une ici.</p>' : '') + '<p>' + why + '</p>';
         break;
       }
       case 'elim':
@@ -812,8 +913,14 @@
         h = '<p>' + chip(P, st.a) + ' et ' + chip(P, st.b) + ' désignent la même ' + E + ' : tout ce que l’on sait de l’un vaut pour l’autre.</p><ul class="why-list">' + items + '</ul>';
         break;
       }
+      case 'cond': {
+        const cl = P.atoms[st.ai].cl;
+        if (st.why === 'mp') h = q + '<p>La condition est remplie : ' + rel(P, cl.a, cl.b, 1) + '. La conséquence s’applique donc : ' + rel(P, cl.c, cl.d, 1) + '.</p>';
+        else h = q + '<p>On sait que ' + rel(P, cl.c, cl.d, -1) + ' : la conséquence est fausse. Par contraposée, la condition l’est aussi : ' + rel(P, cl.a, cl.b, -1) + '.</p>';
+        break;
+      }
       case 'either': {
-        const cl = P.p.clues[st.ci];
+        const cl = P.atoms[st.ai].cl;
         if (st.why === 'bNo' || st.why === 'cNo') {
           const no = st.why === 'bNo' ? cl.b : cl.c, yes = st.why === 'bNo' ? cl.c : cl.b;
           h = q + '<p>L’une des deux options est vraie. Or ' + rel(P, cl.a, no, -1) + ' est déjà établi : il reste forcément ' + rel(P, cl.a, yes, 1) + '.</p>';
@@ -824,13 +931,13 @@
         break;
       }
       case 'pair': {
-        const cl = P.p.clues[st.ci];
+        const cl = P.atoms[st.ai].cl;
         const [x1, y1, x2, y2] = st.cfg === 'A' ? [cl.a, cl.c, cl.b, cl.d] : [cl.a, cl.d, cl.b, cl.c];
         h = q + '<p>Il n’y a que deux répartitions possibles. Les informations déjà connues éliminent l’une d’elles ; il reste : ' + rel(P, x1, y1, 1) + ' et ' + rel(P, x2, y2, 1) + '.</p>';
         break;
       }
       case 'cmp': {
-        const cl = P.p.clues[st.ci], o = cl.o, c = P.p.cats[o];
+        const cl = P.atoms[st.ai].cl, o = cl.o, c = P.p.cats[o];
         const A = chip(P, cl.a), B = chip(P, cl.b);
         let rule;
         if (cl.t === 'lt') rule = 'La valeur de ' + A + ' est strictement inférieure à celle de ' + B + ' (« ' + esc(c.name) + ' »). ' + A + ' ne peut donc pas atteindre la plus grande valeur encore possible pour ' + B + ', et ' + B + ' ne peut pas descendre à la plus petite valeur encore possible pour ' + A + '.';

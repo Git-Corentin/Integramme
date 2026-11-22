@@ -23,13 +23,13 @@
     { name: 'Facile', desc: 'Lecture directe et exclusions', K: 3, N: 4, ord: [0, 1],
       w: { is: 3, not: 5, either: 1, lt: 1.5, alldiff: 0.6 } },
     { name: 'Moyen', desc: 'Transitivité et comparaisons', K: 4, N: 4, ord: [1, 1],
-      w: { is: 1.5, not: 4, either: 2, lt: 2.5, diff: 1, alldiff: 1, pair: 1 } },
+      w: { is: 1.5, not: 4, either: 2, lt: 2.5, diff: 1, alldiff: 1, pair: 1, oneof: 1, none: 1 } },
     { name: 'Difficile', desc: 'Éliminations croisées, sous-ensembles', K: 4, N: 5, ord: [1, 2],
-      w: { is: 0.7, not: 3, either: 2.5, lt: 3, diff: 2, dist: 1, alldiff: 1, pair: 2 } },
+      w: { is: 0.7, not: 3, either: 2.5, lt: 3, diff: 2, dist: 1, alldiff: 1, pair: 2, oneof: 1, none: 1, cond: 0.8 } },
     { name: 'Expert', desc: 'Longues chaînes, parfois une hypothèse', K: 5, N: 5, ord: [1, 2],
-      w: { is: 0.4, not: 2.5, either: 3, lt: 3, diff: 2.5, dist: 1.5, alldiff: 1, pair: 2.5 } },
+      w: { is: 0.4, not: 2.5, either: 3, lt: 3, diff: 2.5, dist: 1.5, alldiff: 1, pair: 2.5, oneof: 1, none: 1, cond: 1.2 } },
     { name: 'Extrême', desc: 'Raisonnements par l’absurde nécessaires', K: 5, N: 5, ord: [1, 2],
-      w: { is: 0.2, not: 2, either: 3, lt: 3, diff: 3, dist: 2, alldiff: 1, pair: 3 } },
+      w: { is: 0.2, not: 2, either: 3, lt: 3, diff: 3, dist: 2, alldiff: 1, pair: 3, oneof: 1, none: 1, cond: 1.5 } },
   ];
 
   /* ---------- construction des catégories à partir d'un thème ---------- */
@@ -99,6 +99,20 @@
         if (type === 'diff') return { t: 'diff', a, b, o, k, s: r() < 0.5 ? 1 : 0 };
         return r() < 0.5 ? { t: 'dist', a, b, o, k } : { t: 'dist', a: b, b: a, o, k };
       }
+      case 'oneof': case 'none': {
+        const ca = anyCat([]), cb = anyCat([ca]);
+        const others = shuffle(r, [...Array(N).keys()].filter(e => e !== e1));
+        const l = type === 'oneof' ? [g(cb, e1), g(cb, others[0])].concat(N > 4 && r() < 0.5 ? [g(cb, others[1])] : [])
+          : [g(cb, others[0]), g(cb, others[1])];
+        return { t: type, a: g(ca, e1), l: shuffle(r, l) };
+      }
+      case 'cond': {
+        // condition fausse : n'apporte de l'information que par contraposée
+        const ca = anyCat([]), cb = anyCat([ca]), cc = anyCat([]), cd = anyCat([cc]);
+        const e3 = Math.floor(r() * N);
+        let e4 = r() < 0.5 ? e3 : Math.floor(r() * N);
+        return { t: 'cond', a: g(ca, e1), b: g(cb, e2), c: g(cc, e3), d: g(cd, e4) };
+      }
       case 'alldiff': {
         const n = Math.min(N, 3 + Math.floor(r() * 2));
         const es = shuffle(r, [...Array(N).keys()]).slice(0, n);
@@ -120,6 +134,8 @@
       case 'diff': return 'd' + cl.a + ',' + cl.b + ',' + cl.o;
       case 'dist': return 'D' + s(cl.a, cl.b) + ',' + cl.o;
       case 'alldiff': return 'A' + cl.l.slice().sort((x, y) => x - y).join(',');
+      case 'oneof': case 'none': return cl.t + cl.a + ':' + cl.l.slice().sort((x, y) => x - y).join(',');
+      case 'cond': return 'c' + s(cl.a, cl.b) + ':' + s(cl.c, cl.d);
     }
   }
 
@@ -128,6 +144,7 @@
     if (cl.t === 'is' || cl.t === 'not') return false;
     if (cl.t === 'pair') return cl.a === cl.b || cl.c === cl.d;
     if (cl.t === 'either') return cl.b === cl.c;
+    if (cl.t === 'cond') return (cl.a === cl.c && cl.b === cl.d) || (cl.a === cl.d && cl.b === cl.c);
     return false;
   }
 
@@ -139,6 +156,24 @@
     if (level >= 4) q += res.counts[4] * 2 + res.counts[3] * 0.2 + disj;
     if (level <= 2) q -= res.counts[3] * 3;
     return q;
+  }
+
+  // Fusionne quelques indices simples portant sur le même élément (« Alice a le chat et n'habite pas à Lyon. »)
+  function mergeClues(r, clues, max) {
+    const simple = c => c.t === 'is' || c.t === 'not' || ((c.t === 'none' || c.t === 'oneof') && c.l.length <= 3);
+    const subj = c => c.t === 'is' || c.t === 'not' ? [c.a, c.b] : [c.a];
+    let out = clues.slice(), n = 0;
+    for (let i = 0; i < out.length && n < max; i++) {
+      if (!simple(out[i]) || r() < 0.35) continue;
+      for (let j = i + 1; j < out.length; j++) {
+        if (!simple(out[j])) continue;
+        if (!subj(out[i]).some(x => subj(out[j]).includes(x))) continue;
+        out[i] = { t: 'multi', parts: [out[i], out[j]] };
+        out.splice(j, 1); n++;
+        break;
+      }
+    }
+    return out;
   }
 
   function unique(p) { return C.countSolutions(p, 2).count === 1; }
@@ -241,6 +276,7 @@
     }
     if (!best) return null;
     best.clues = shuffle(r, best.clues);
+    if (level >= 2) best.clues = mergeClues(r, best.clues, level >= 4 ? 3 : 2);
     return finalize(best, theme, level, seed, C.solveExplained(best, { explain: false, maxLv: 4 }));
   }
 
