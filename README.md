@@ -10,22 +10,6 @@ Jouer, générer, résoudre et **comprendre** les integrammes (grilles logiques)
 
 Aucune dépendance, aucune étape de compilation : ce sont des fichiers statiques.
 
-## Mettre en ligne sur GitHub Pages (5 minutes)
-
-1. Créez un dépôt sur GitHub, par exemple `integramme` (public).
-2. Envoyez-y **le contenu** de ce dossier (le fichier `index.html` doit être à la racine du dépôt) :
-   - soit par le site : *Add file → Upload files*, glissez tous les fichiers et dossiers, puis *Commit changes* ;
-   - soit en ligne de commande :
-     ```bash
-     cd integramme
-     git init && git add . && git commit -m "Integramme"
-     git branch -M main
-     git remote add origin https://github.com/VOTRE-NOM/integramme.git
-     git push -u origin main
-     ```
-3. Dans le dépôt : *Settings → Pages → Build and deployment*, choisissez **Deploy from a branch**, branche `main`, dossier `/ (root)`, puis *Save*.
-4. Après une minute environ, le site est disponible à l’adresse `https://VOTRE-NOM.github.io/integramme/`.
-
 ## L’installer sur Android
 
 1. Ouvrez l’adresse GitHub Pages dans **Chrome**.
