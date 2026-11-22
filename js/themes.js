@@ -1,0 +1,216 @@
+/* =========================================================================
+   Integramme — thèmes du générateur et modèles de phrases
+   ========================================================================= */
+(function (G) {
+  'use strict';
+
+  const NAMES = [
+    ['Adèle', 'f'], ['Antoine', 'm'], ['Bastien', 'm'], ['Béatrice', 'f'], ['Camille', 'f'], ['Cyril', 'm'],
+    ['Diane', 'f'], ['Damien', 'm'], ['Élise', 'f'], ['Émile', 'm'], ['Fanny', 'f'], ['Félix', 'm'],
+    ['Gaëlle', 'f'], ['Gaspard', 'm'], ['Hélène', 'f'], ['Hugo', 'm'], ['Inès', 'f'], ['Igor', 'm'],
+    ['Jeanne', 'f'], ['Jules', 'm'], ['Léa', 'f'], ['Lucas', 'm'], ['Margot', 'f'], ['Marius', 'm'],
+    ['Nina', 'f'], ['Noé', 'm'], ['Olivia', 'f'], ['Oscar', 'm'], ['Pauline', 'f'], ['Paul', 'm'],
+    ['Rose', 'f'], ['Raphaël', 'm'], ['Salomé', 'f'], ['Simon', 'm'], ['Victoire', 'f'], ['Victor', 'm'],
+  ].map(([label, g]) => ({ label, g }));
+
+  const nameCat = (name) => ({ name, kind: 'name', pool: NAMES, tpl: { pred: 'est {x}', neg: 'n’est pas {x}', ref: '{x}' } });
+  const it = (label, txt, txtNeg) => ({ label, txt: txt || label, txtNeg });
+  const lower = arr => arr.map(l => it(l, l.toLowerCase()));
+
+  const AGE = (from, to, step) => ({
+    name: 'Âge', kind: 'ord', k: { one: 'an', many: 'ans' },
+    pool: range(from, to, step).map(v => ({ v, label: v + ' ans' })),
+    tpl: {
+      pred: 'a {x}', neg: 'n’a pas {x}', ref: 'la personne de {x}',
+      lt: '{a} est plus jeune que {b}', gt: '{a} est plus âgé{e} que {b}',
+      dlt: '{a} a {k} de moins que {b}', dgt: '{a} a {k} de plus que {b}', dist: '{a} et {b} ont {k} d’écart',
+    },
+  });
+
+  function range(a, b, s) { const r = []; for (let v = a; v <= b; v += s) r.push(v); return r; }
+  const hhmm = v => Math.floor(v / 60) + 'h' + String(v % 60).padStart(2, '0');
+  const ordinal = n => n === 1 ? '1er' : n + 'e';
+
+  const THEMES = [
+    {
+      id: 'manoir', name: 'Meurtre au manoir', icon: '🕯️', hue: 12,
+      story: 'Le soir du grand bal, le vieux comte de Valcourt a été retrouvé inanimé dans son fauteuil. {n} invités sont soupçonnés.',
+      cats: [
+        nameCat('Suspect'),
+        { name: 'Pièce', kind: 'attr', tpl: { pred: 'était dans {x}', neg: 'n’était pas dans {x}', ref: 'la personne qui était dans {x}' },
+          pool: [it('Bibliothèque', 'la bibliothèque'), it('Cuisine', 'la cuisine'), it('Salon', 'le salon'), it('Serre', 'la serre'),
+                 it('Bureau', 'le bureau'), it('Cave', 'la cave'), it('Grenier', 'le grenier'), it('Véranda', 'la véranda')] },
+        { name: 'Objet', kind: 'attr', tpl: { pred: 'avait {x}', neg: 'n’avait pas {x}', ref: 'la personne qui avait {x}' },
+          pool: [it('Chandelier', 'le chandelier'), it('Corde', 'la corde'), it('Poignard', 'le poignard'), it('Revolver', 'le revolver'),
+                 it('Fiole', 'la fiole'), it('Clé anglaise', 'la clé anglaise'), it('Canne', 'la canne'), it('Tisonnier', 'le tisonnier')] },
+        { name: 'Départ', kind: 'ord', k: { time: true },
+          pool: range(21 * 60, 23 * 60 + 30, 15).map(v => ({ v, label: hhmm(v) })),
+          tpl: { pred: 'a quitté la soirée à {x}', neg: 'n’a pas quitté la soirée à {x}', ref: 'la personne partie à {x}',
+                 lt: '{a} a quitté la soirée avant {b}', gt: '{a} a quitté la soirée après {b}',
+                 dlt: '{a} a quitté la soirée {k} avant {b}', dgt: '{a} a quitté la soirée {k} après {b}',
+                 dist: '{a} et {b} sont parti{p} à {k} d’intervalle' } },
+        AGE(25, 75, 5),
+        { name: 'Mobile', kind: 'attr', tpl: { pred: 'avait pour mobile {x}', neg: 'n’avait pas pour mobile {x}', ref: 'la personne dont le mobile était {x}' },
+          pool: [it('Héritage', 'l’héritage'), it('Jalousie', 'la jalousie'), it('Vengeance', 'la vengeance'), it('Chantage', 'le chantage'),
+                 it('Dettes', 'les dettes'), it('Ambition', 'l’ambition'), it('Secret', 'un secret de famille'), it('Rivalité', 'la rivalité')] },
+      ],
+    },
+    {
+      id: 'patisserie', name: 'Concours de pâtisserie', icon: '🧁', hue: 330,
+      story: 'La finale du grand concours de pâtisserie vient de s’achever. {n} candidats se sont affrontés devant le jury.',
+      cats: [
+        nameCat('Candidat'),
+        { name: 'Gâteau', kind: 'attr', tpl: { pred: 'a préparé {x}', neg: 'n’a pas préparé {x}', ref: 'la personne qui a préparé {x}' },
+          pool: [it('Tarte Tatin', 'la tarte Tatin'), it('Fraisier', 'le fraisier'), it('Opéra', 'l’opéra'), it('Paris-Brest', 'le paris-brest'),
+                 it('Forêt-noire', 'la forêt-noire'), it('Millefeuille', 'le millefeuille'), it('Baba', 'le baba au rhum'), it('Éclair', 'l’éclair géant')] },
+        { name: 'Ville', kind: 'attr', tpl: { pred: 'vient de {x}', neg: 'ne vient pas de {x}', ref: 'la personne venue de {x}' },
+          pool: ['Lyon', 'Nantes', 'Lille', 'Nice', 'Dijon', 'Rouen', 'Annecy', 'Metz'].map(l => it(l)) },
+        { name: 'Note', kind: 'ord', k: { one: 'point', many: 'points' },
+          pool: range(11, 19, 1).map(v => ({ v, label: v + '/20' })),
+          tpl: { pred: 'a obtenu {x}', neg: 'n’a pas obtenu {x}', ref: 'la personne qui a obtenu {x}',
+                 lt: '{a} a obtenu une note plus basse que {b}', gt: '{a} a obtenu une meilleure note que {b}',
+                 dlt: '{a} a obtenu {k} de moins que {b}', dgt: '{a} a obtenu {k} de plus que {b}', dist: '{a} et {b} ont {k} d’écart' } },
+        AGE(20, 60, 5),
+        { name: 'Ingrédient', kind: 'attr', tpl: { pred: 'a misé sur {x}', neg: 'n’a pas misé sur {x}', ref: 'la personne qui a misé sur {x}' },
+          pool: [it('Vanille', 'la vanille'), it('Pistache', 'la pistache'), it('Caramel', 'le caramel'), it('Framboise', 'la framboise'),
+                 it('Citron', 'le citron'), it('Cannelle', 'la cannelle'), it('Noisette', 'la noisette'), it('Mangue', 'la mangue')] },
+      ],
+    },
+    {
+      id: 'voyage', name: 'Tour du monde', icon: '✈️', hue: 200,
+      story: 'Une agence de voyages a organisé les vacances de {n} clients. Le dossier s’est mélangé : remettez de l’ordre !',
+      cats: [
+        nameCat('Voyageur'),
+        { name: 'Destination', kind: 'attr', tpl: { pred: 'part {x}', neg: 'ne part pas {x}', ref: 'la personne qui part {x}' },
+          pool: [it('Japon', 'au Japon'), it('Islande', 'en Islande'), it('Pérou', 'au Pérou'), it('Canada', 'au Canada'),
+                 it('Égypte', 'en Égypte'), it('Norvège', 'en Norvège'), it('Mexique', 'au Mexique'), it('Vietnam', 'au Vietnam')] },
+        { name: 'Transport', kind: 'attr', tpl: { pred: 'voyage {x}', neg: 'ne voyage pas {x}', ref: 'la personne qui voyage {x}' },
+          pool: [it('Avion', 'en avion'), it('Train', 'en train'), it('Paquebot', 'en paquebot'), it('Voilier', 'en voilier'),
+                 it('Vélo', 'à vélo'), it('Camping-car', 'en camping-car'), it('Moto', 'à moto'), it('Cargo', 'en cargo')] },
+        { name: 'Durée', kind: 'ord', k: { one: 'jour', many: 'jours' },
+          pool: range(4, 20, 2).map(v => ({ v, label: v + ' jours' })),
+          tpl: { pred: 'part pour {x}', neg: 'ne part pas pour {x}', ref: 'la personne qui part pour {x}',
+                 lt: '{a} part moins longtemps que {b}', gt: '{a} part plus longtemps que {b}',
+                 dlt: '{a} part {k} de moins que {b}', dgt: '{a} part {k} de plus que {b}',
+                 dist: 'les séjours de {a} et de {b} ont {k} d’écart' } },
+        { name: 'Budget', kind: 'ord', k: { one: '€', many: '€' },
+          pool: range(1000, 5000, 500).map(v => ({ v, label: v.toLocaleString('fr-FR').replace(/\s/g, ' ') + ' €' })),
+          tpl: { pred: 'dispose d’un budget de {x}', neg: 'ne dispose pas d’un budget de {x}', ref: 'la personne au budget de {x}',
+                 lt: '{a} a un budget inférieur à celui de {b}', gt: '{a} a un budget supérieur à celui de {b}',
+                 dlt: 'le budget de {a} est inférieur de {k} à celui de {b}', dgt: 'le budget de {a} est supérieur de {k} à celui de {b}',
+                 dist: 'les budgets de {a} et de {b} ont {k} d’écart' } },
+        { name: 'Activité', kind: 'attr', tpl: { pred: 'pratique {x}', neg: 'ne pratique pas {x}', ref: 'la personne qui pratique {x}' },
+          pool: [it('Plongée', 'la plongée'), it('Randonnée', 'la randonnée'), it('Surf', 'le surf'), it('Photo', 'la photographie'),
+                 it('Escalade', 'l’escalade'), it('Kayak', 'le kayak'), it('Yoga', 'le yoga'), it('Pêche', 'la pêche')] },
+      ],
+    },
+    {
+      id: 'marathon', name: 'Le marathon', icon: '🏃', hue: 145,
+      story: 'Le marathon de la ville s’est couru sous un grand soleil. Le tableau des résultats a été effacé par l’orage du soir : {n} coureurs sont concernés.',
+      cats: [
+        nameCat('Coureur'),
+        { name: 'Pays', kind: 'attr', tpl: { pred: 'représente {x}', neg: 'ne représente pas {x}', ref: 'la personne qui représente {x}' },
+          pool: [it('France', 'la France'), it('Italie', 'l’Italie'), it('Kenya', 'le Kenya'), it('Japon', 'le Japon'),
+                 it('Brésil', 'le Brésil'), it('Canada', 'le Canada'), it('Maroc', 'le Maroc'), it('Suède', 'la Suède')] },
+        { name: 'Classement', kind: 'ord', k: { one: 'place', many: 'places' },
+          pool: range(1, 8, 1).map(v => ({ v, label: ordinal(v) })),
+          tpl: { pred: 'a terminé {x}', neg: 'n’a pas terminé {x}', ref: 'la personne arrivée {x}',
+                 lt: '{a} a terminé devant {b}', gt: '{a} a terminé derrière {b}',
+                 dlt: '{a} a terminé {k} devant {b}', dgt: '{a} a terminé {k} derrière {b}',
+                 dist: '{a} et {b} sont séparé{p} de {k} au classement' } },
+        { name: 'Dossard', kind: 'ord', k: {},
+          pool: range(5, 60, 5).map(v => ({ v, label: 'n°' + v, txt: String(v) })),
+          tpl: { pred: 'porte le dossard {x}', neg: 'ne porte pas le dossard {x}', ref: 'la personne au dossard {x}',
+                 lt: '{a} a un numéro de dossard plus petit que {b}', gt: '{a} a un numéro de dossard plus grand que {b}',
+                 dlt: 'le dossard de {a} est inférieur de {k} à celui de {b}', dgt: 'le dossard de {a} est supérieur de {k} à celui de {b}',
+                 dist: 'les dossards de {a} et de {b} ont {k} d’écart' } },
+        { name: 'Maillot', kind: 'attr', tpl: { pred: 'porte un maillot {x}', neg: 'ne porte pas de maillot {x}', ref: 'la personne au maillot {x}' },
+          pool: lower(['Rouge', 'Vert', 'Bleu', 'Jaune', 'Orange', 'Violet', 'Noir', 'Blanc']) },
+        AGE(20, 55, 5),
+      ],
+    },
+    {
+      id: 'immeuble', name: 'Les voisins', icon: '🏢', hue: 265,
+      story: 'Au 12, rue des Lilas, {n} voisins se croisent chaque matin dans l’escalier. Le gardien, nouveau venu, essaie de s’y retrouver.',
+      cats: [
+        nameCat('Habitant'),
+        { name: 'Étage', kind: 'ord', k: { one: 'étage', many: 'étages' },
+          pool: range(0, 7, 1).map(v => v === 0 ? { v, label: 'RDC', txt: 'rez-de-chaussée' } : { v, label: ordinal(v), txt: ordinal(v) + ' étage' }),
+          tpl: { pred: 'habite au {x}', neg: 'n’habite pas au {x}', ref: 'la personne du {x}',
+                 lt: '{a} habite plus bas que {b}', gt: '{a} habite plus haut que {b}',
+                 dlt: '{a} habite {k} sous {b}', dgt: '{a} habite {k} au-dessus de {b}',
+                 dist: '{a} et {b} habitent à {k} d’écart' } },
+        { name: 'Animal', kind: 'attr', tpl: { pred: 'a {x}', neg: 'n’a pas {xn}', ref: 'la personne qui a {x}' },
+          pool: [it('Chat', 'un chat', 'de chat'), it('Chien', 'un chien', 'de chien'), it('Perroquet', 'un perroquet', 'de perroquet'),
+                 it('Lapin', 'un lapin', 'de lapin'), it('Poisson', 'un poisson rouge', 'de poisson rouge'), it('Tortue', 'une tortue', 'de tortue'),
+                 it('Furet', 'un furet', 'de furet'), it('Hamster', 'un hamster', 'de hamster')] },
+        { name: 'Métier', kind: 'attr', tpl: { pred: 'est {x}', neg: 'n’est pas {x}', ref: 'la personne qui est {x}' },
+          pool: lower(['Architecte', 'Journaliste', 'Dentiste', 'Libraire', 'Photographe', 'Fleuriste', 'Pianiste', 'Juriste']) },
+        { name: 'Boisson', kind: 'attr', tpl: { pred: 'boit {x} au réveil', neg: 'ne boit pas {xn} au réveil', ref: 'la personne qui boit {x} au réveil' },
+          pool: [it('Café', 'du café', 'de café'), it('Thé', 'du thé', 'de thé'), it('Chocolat', 'du chocolat', 'de chocolat'),
+                 it('Tisane', 'de la tisane', 'de tisane'), it('Jus d’orange', 'du jus d’orange', 'de jus d’orange'),
+                 it('Lait', 'du lait', 'de lait'), it('Smoothie', 'un smoothie', 'de smoothie'), it('Eau', 'de l’eau', 'd’eau')] },
+        { name: 'Ancienneté', kind: 'ord', k: { one: 'an', many: 'ans' },
+          pool: range(1, 17, 2).map(v => ({ v, label: v + (v > 1 ? ' ans' : ' an') })),
+          tpl: { pred: 'vit ici depuis {x}', neg: 'ne vit pas ici depuis {x}', ref: 'la personne installée depuis {x}',
+                 lt: '{a} est arrivé{e} dans l’immeuble après {b}', gt: '{a} est arrivé{e} dans l’immeuble avant {b}',
+                 dlt: '{a} vit ici depuis {k} de moins que {b}', dgt: '{a} vit ici depuis {k} de plus que {b}',
+                 dist: '{a} et {b} sont arrivé{p} à {k} d’intervalle' } },
+      ],
+    },
+    {
+      id: 'agence', name: 'L’agence de détectives', icon: '🔍', hue: 42,
+      story: 'L’agence Loupe & Fils emploie {n} détectives. Le registre des missions a disparu… ce qui est un comble.',
+      cats: [
+        nameCat('Détective'),
+        { name: 'Affaire', kind: 'attr', tpl: { pred: 'enquête sur {x}', neg: 'n’enquête pas sur {x}', ref: 'la personne chargée de {x}' },
+          pool: [it('Collier', 'le vol du collier'), it('Testament', 'le faux testament'), it('Lettre', 'la lettre anonyme'),
+                 it('Disparition', 'la disparition du chat'), it('Tableau', 'le tableau volé'), it('Incendie', 'l’incendie du hangar'),
+                 it('Chantage', 'le chantage au théâtre'), it('Coffre', 'le coffre-fort vide')] },
+        { name: 'Ville', kind: 'attr', tpl: { pred: 'travaille à {x}', neg: 'ne travaille pas à {x}', ref: 'la personne basée à {x}' },
+          pool: ['Paris', 'Marseille', 'Bordeaux', 'Strasbourg', 'Toulouse', 'Rennes', 'Grenoble', 'Lyon'].map(l => it(l)) },
+        { name: 'Expérience', kind: 'ord', k: { one: 'an', many: 'ans' },
+          pool: range(2, 18, 2).map(v => ({ v, label: v + ' ans' })),
+          tpl: { pred: 'a {x} d’expérience', neg: 'n’a pas {x} d’expérience', ref: 'la personne qui a {x} d’expérience',
+                 lt: '{a} a moins d’expérience que {b}', gt: '{a} a plus d’expérience que {b}',
+                 dlt: '{a} a {k} d’expérience de moins que {b}', dgt: '{a} a {k} d’expérience de plus que {b}',
+                 dist: '{a} et {b} ont {k} d’écart d’expérience' } },
+        { name: 'Accessoire', kind: 'attr', tpl: { pred: 'utilise {x}', neg: 'n’utilise pas {x}', ref: 'la personne qui utilise {x}' },
+          pool: [it('Loupe', 'la loupe'), it('Carnet', 'le carnet'), it('Appareil photo', 'l’appareil photo'), it('Jumelles', 'les jumelles'),
+                 it('Magnétophone', 'le magnétophone'), it('Lampe', 'la lampe torche'), it('Boussole', 'la boussole'), it('Parapluie', 'le parapluie')] },
+        { name: 'Tarif', kind: 'ord', k: { one: '€', many: '€' },
+          pool: range(40, 120, 10).map(v => ({ v, label: v + ' €' })),
+          tpl: { pred: 'facture {x} de l’heure', neg: 'ne facture pas {x} de l’heure', ref: 'la personne qui facture {x} de l’heure',
+                 lt: '{a} pratique un tarif inférieur à celui de {b}', gt: '{a} pratique un tarif supérieur à celui de {b}',
+                 dlt: '{a} facture {k} de moins que {b}', dgt: '{a} facture {k} de plus que {b}',
+                 dist: 'les tarifs de {a} et de {b} ont {k} d’écart' } },
+      ],
+    },
+  ];
+
+  /* Modèles de phrases pour l'éditeur (catégories personnalisées) */
+  const PRESETS = {
+    name: { label: 'Prénoms / noms', kind: 'name', tpl: { pred: 'est {x}', neg: 'n’est pas {x}', ref: '{x}' } },
+    lieu: { label: 'Lieu (habite à …)', kind: 'attr', tpl: { pred: 'habite à {x}', neg: 'n’habite pas à {x}', ref: 'la personne qui habite à {x}' } },
+    possede: { label: 'Possession (a … : « le chat »)', kind: 'attr', tpl: { pred: 'a {x}', neg: 'n’a pas {x}', ref: 'la personne qui a {x}' } },
+    aime: { label: 'Préférence (aime … : « le jazz »)', kind: 'attr', tpl: { pred: 'aime {x}', neg: 'n’aime pas {x}', ref: 'la personne qui aime {x}' } },
+    est: { label: 'Qualité / métier (est … : « médecin »)', kind: 'attr', tpl: { pred: 'est {x}', neg: 'n’est pas {x}', ref: 'la personne qui est {x}' } },
+    generic: { label: 'Générique (associé à …)', kind: 'attr', tpl: { pred: 'est associée à {x}', neg: 'n’est pas associée à {x}', ref: 'la personne associée à {x}' } },
+    age: { label: 'Âge (nombres, « ans »)', kind: 'ord', k: { one: 'an', many: 'ans' }, unit: ' ans', tpl: AGE(1, 2, 1).tpl },
+    heure: { label: 'Heure (ex. 18h30)', kind: 'ord', k: { time: true }, time: true,
+      tpl: { pred: 'arrive à {x}', neg: 'n’arrive pas à {x}', ref: 'la personne arrivée à {x}', lt: '{a} arrive avant {b}', gt: '{a} arrive après {b}',
+             dlt: '{a} arrive {k} avant {b}', dgt: '{a} arrive {k} après {b}', dist: '{a} et {b} arrivent à {k} d’intervalle' } },
+    prix: { label: 'Prix (€)', kind: 'ord', k: { one: '€', many: '€' }, unit: ' €',
+      tpl: { pred: 'a payé {x}', neg: 'n’a pas payé {x}', ref: 'la personne qui a payé {x}', lt: '{a} a payé moins que {b}', gt: '{a} a payé plus que {b}',
+             dlt: '{a} a payé {k} de moins que {b}', dgt: '{a} a payé {k} de plus que {b}', dist: '{a} et {b} ont payé à {k} d’écart' } },
+    rang: { label: 'Rang / position (1er, 2e…)', kind: 'ord', k: { one: 'place', many: 'places' }, ordinal: true,
+      tpl: { pred: 'est {x}', neg: 'n’est pas {x}', ref: 'la personne classée {x}', lt: '{a} est classé{e} devant {b}', gt: '{a} est classé{e} derrière {b}',
+             dlt: '{a} est classé{e} {k} devant {b}', dgt: '{a} est classé{e} {k} derrière {b}', dist: '{a} et {b} sont séparé{p} de {k}' } },
+    nombre: { label: 'Nombre générique', kind: 'ord', k: {},
+      tpl: { pred: 'a le nombre {x}', neg: 'n’a pas le nombre {x}', ref: 'la personne au nombre {x}', lt: 'le nombre de {a} est plus petit que celui de {b}',
+             gt: 'le nombre de {a} est plus grand que celui de {b}', dlt: 'le nombre de {a} est inférieur de {k} à celui de {b}',
+             dgt: 'le nombre de {a} est supérieur de {k} à celui de {b}', dist: 'les nombres de {a} et de {b} ont {k} d’écart' } },
+  };
+
+  G.Themes = { THEMES, PRESETS, NAMES, hhmm, ordinal };
+})(typeof self !== 'undefined' ? self : this);

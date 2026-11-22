@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Integramme — enquêtes logiques</title>
+  <meta name="description" content="Jouez, générez et comprenez les integrammes (grilles logiques) : solveur expliqué pas à pas, générateur à 5 niveaux et méthode illustrée.">
+  <meta name="theme-color" content="#f3efe7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d1016" media="(prefers-color-scheme: dark)">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Integramme">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <script>
+    // thème appliqué avant l'affichage (pas de flash)
+    (function () {
+      try {
+        var s = JSON.parse(localStorage.getItem('ig.settings') || '{}');
+        var t = s.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/jouer" aria-label="Integramme, accueil">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><use href="#logo"/></svg>
+      <b>Integramme</b>
+    </a>
+    <nav class="tabs" aria-label="Navigation principale">
+      <a href="#/jouer" data-r="jouer">Jouer</a>
+      <a href="#/creer" data-r="creer">Créer</a>
+      <a href="#/editeur" data-r="editeur">Solveur</a>
+      <a href="#/methode" data-r="methode">Méthode</a>
+    </nav>
+    <div class="top-actions">
+      <button class="icon-btn hidden" id="installBtn" title="Installer l’application" aria-label="Installer l’application"></button>
+      <button class="icon-btn" id="themeBtn" title="Thème clair / sombre" aria-label="Changer de thème"></button>
+    </div>
+  </header>
+
+  <main id="view" class="wrap"></main>
+
+  <nav class="bottomnav" aria-label="Navigation">
+    <a href="#/jouer" data-r="jouer"><i data-ic="grid"></i>Jouer</a>
+    <a href="#/creer" data-r="creer"><i data-ic="sparkles"></i>Créer</a>
+    <a href="#/editeur" data-r="editeur"><i data-ic="wand"></i>Solveur</a>
+    <a href="#/methode" data-r="methode"><i data-ic="book"></i>Méthode</a>
+  </nav>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#2f3fb5"/><stop offset=".6" stop-color="#5a2fb6"/><stop offset="1" stop-color="#b4436b"/>
+      </linearGradient>
+      <symbol id="logo" viewBox="0 0 64 64">
+        <rect width="64" height="64" rx="15" fill="url(#lg)"/>
+        <g fill="#fff" fill-opacity=".14"><rect x="12" y="12" width="11" height="11" rx="3"/><rect x="26.5" y="12" width="11" height="11" rx="3"/><rect x="41" y="12" width="11" height="11" rx="3"/><rect x="12" y="26.5" width="11" height="11" rx="3"/><rect x="41" y="26.5" width="11" height="11" rx="3"/><rect x="12" y="41" width="11" height="11" rx="3"/><rect x="26.5" y="41" width="11" height="11" rx="3"/></g>
+        <g stroke="#ffd2bf" stroke-width="2.6" stroke-linecap="round"><path d="M28.8 14.3l6.4 6.4M35.2 14.3l-6.4 6.4M14.3 43.3l6.4 6.4M20.7 43.3l-6.4 6.4"/></g>
+        <circle cx="32" cy="32" r="4.2" fill="#7ff0c6"/>
+        <circle cx="45.5" cy="45.5" r="7.2" fill="none" stroke="#fff" stroke-width="3.2"/>
+        <path d="M50.8 50.8l5 5" stroke="#fff" stroke-width="3.6" stroke-linecap="round"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <noscript><p style="padding:20px">Integramme nécessite JavaScript.</p></noscript>
+
+  <script src="js/core.js"></script>
+  <script src="js/themes.js"></script>
+  <script src="js/generator.js"></script>
+  <script src="js/method.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
