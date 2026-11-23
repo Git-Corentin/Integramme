@@ -684,3 +684,32 @@ footer.foot { text-align: center; color: var(--muted); font-size: 13px; margin-t
 .clue-ed .tx:hover { color: var(--brand); }
 .clue-ed .tags { display: inline-flex; gap: 4px; margin-left: 6px; }
 .clue-ed.editing { border-color: var(--brand); box-shadow: 0 0 0 2px color-mix(in oklab, var(--brand) 25%, transparent); }
+
+/* Partie sur téléphone : plein écran, poignée de redimensionnement */
+.phead .quit { flex: none; margin-left: -6px; }
+.splitter { display: none; }
+@media (max-width: 999px) {
+  body.playing .topbar, body.playing .bottomnav { display: none; }
+  body.playing { --topbar: 0px; --bottomnav: 0px; }
+  body.playing main.has-playbar { padding-top: calc(8px + env(safe-area-inset-top)); padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
+  body.playing .playwrap { height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 16px); }
+  .pmain { grid-template-rows: auto auto minmax(0, 1fr); gap: 0; }
+  .splitter { display: flex; justify-content: center; align-items: center; height: 18px; touch-action: none; cursor: row-resize; }
+  .splitter i { width: 46px; height: 5px; border-radius: 9px; background: var(--line-2); }
+  .splitter:active i { background: var(--brand); }
+  .phead { flex-wrap: nowrap; }
+  .phead .meta .lv-badge .dots { display: none; }
+}
+
+/* Affichage contrasté */
+body.hc .lgrid .cell, body.hc .lgrid .cell.alt { background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-2); }
+body.hc .lgrid .cell.bk1 { background: color-mix(in oklab, var(--brand) 9%, var(--surface)); }
+body.hc .lgrid .cell.hx { background: var(--cross); }
+body.hc .lgrid .cell:hover { background: var(--cell-hover); }
+body.hc .lgrid .cell.y::after { width: 60%; height: 60%; }
+body.hc .lgrid .cell.n::after, body.hc .lgrid .cell.n::before { height: max(2.5px, calc(var(--cs) * .1)); width: 58%; }
+body.hc .lgrid .cell.n.auto::after, body.hc .lgrid .cell.n.auto::before { background: color-mix(in oklab, var(--no) 55%, var(--surface)); }
+body.hc .lgrid .itv:nth-child(odd), body.hc .lgrid .ith { color: var(--ink); }
+body.hc .lgrid .cath { border-bottom-width: 4px; }
+body.hc .lgrid .catv { border-left-width: 4px; }
+.lgrid .cell.y.auto::after { opacity: .7; }

@@ -27,7 +27,8 @@
   function compile(p) {
     const K = p.cats.length, N = p.cats[0].items.length, M = K * N;
     const vals = p.cats.map(c => c.kind === 'ord' ? c.items.map(it => +it.v) : null);
-    const P = { p, K, N, M, vals, ent: p.entity || 'personne' };
+    const ranks = vals.map(V => V ? V.map(v => V.filter(w => w < v).length) : null);
+    const P = { p, K, N, M, vals, ranks, ent: p.entity || 'personne' };
     P.atoms = [];
     (p.clues || []).forEach((cl, ci) => partsOf(P, cl).forEach(a => P.atoms.push({ cl: a, ci })));
     return P;
@@ -82,14 +83,18 @@
   }
 
   function txtOf(P, g) { const it = itemOf(P, g); return it.txt || it.label; }
+  // Genres révélés par un indice composé (« la boulangère ») — actif pendant la rédaction d'un indice
+  let GMAP = null;
   function genderOf(P, g) {
+    if (GMAP && GMAP[g]) return GMAP[g];
     const c = P.p.cats[catOf(P, g)];
     if (c.kind === 'name') return itemOf(P, g).g || 'm';
     return (c.tpl && c.tpl.refG) || 'f';
   }
   function refOf(P, g) {
-    const c = P.p.cats[catOf(P, g)];
-    if (c.kind === 'name') return itemOf(P, g).label;
+    const c = P.p.cats[catOf(P, g)], it = itemOf(P, g);
+    if (c.kind === 'name') return it.label;
+    if (GMAP && GMAP[g] && it['r' + GMAP[g]]) return it['r' + GMAP[g]];
     return fill(c.tpl.ref, { x: txtOf(P, g) });
   }
   function predOf(P, g, gen, neg) {
@@ -98,8 +103,21 @@
     const it = itemOf(P, g);
     return fill(t, { x: txtOf(P, g), xn: it.txtNeg || txtOf(P, g), e: gen === 'f' ? 'e' : '' });
   }
+  // « n'habite pas à Lyon » → « n'habite à Lyon » (pour « Ni A ni B n'habite à Lyon »)
+  function negNoPas(P, g) {
+    const c = P.p.cats[catOf(P, g)], it = itemOf(P, g);
+    return fill(c.tpl.neg.replace(/\bpas\s+/, ''), { x: txtOf(P, g), xn: it.txtNeg || txtOf(P, g), e: '' });
+  }
   const isName = (P, g) => P.p.cats[catOf(P, g)].kind === 'name';
+  const gendered = (P, g) => { const it = itemOf(P, g); return !!(it.rf && it.rm); };
   const NUM = ['zéro', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit'];
+  const E_ = (P, g) => genderOf(P, g) === 'f' ? 'e' : '';
+  const LE = (P, g) => genderOf(P, g) === 'f' ? 'la' : 'le';
+  function extremeOf(P, g) {
+    const c = catOf(P, g), V = P.vals[c]; if (!V) return null;
+    const v = V[idxOf(P, g)];
+    return v === Math.min(...V) ? 'min' : v === Math.max(...V) ? 'max' : null;
+  }
 
   // préposition répétée dans les énumérations (« à Lyon ou à Nice »)
   function prepOf(t) {
@@ -124,50 +142,117 @@
     return fill(t, { x, xn: x, e: gen === 'f' ? 'e' : '' });
   }
   function joinAnd(list) { return list.length > 1 ? list.slice(0, -1).join(', ') + ' et ' + list[list.length - 1] : list[0] || ''; }
+
+  // Phrase de comparaison vue depuis un sujet donné. dir = -1 si le sujet a la plus petite valeur.
+  const SUBJ = '\u0001';
+  function cmpFrom(P, part, subj) {
+    const c = P.p.cats[part.o]; if (!c) return null;
+    const t = c.tpl, isA = part.a === subj, isB = part.b === subj;
+    if (!isA && !isB) return null;
+    const other = isA ? part.b : part.a, e = E_(P, subj), le = LE(P, subj);
+    const o = { a: SUBJ, b: refOf(P, other), e, le };
+    let tp = null, dir = isA ? -1 : 1;
+    if (part.t === 'lt') tp = isA ? t.lt : t.gt;
+    else if (part.t === 'diff') { tp = isA ? t.dlt : t.dgt; o.k = fmtK(c, part.k); }
+    else if (part.t === 'next') { tp = isA ? t.nlt : t.ngt; }
+    if (!tp) return null;
+    return { s: fill(tp, o), dir, o: part.o };
+  }
+  function cmpSentence(P, cl) { // phrase complète d'une comparaison (sujet = a, ou b si formulation inversée)
+    const subj = cl.s ? cl.b : cl.a;
+    const r = cmpFrom(P, cl, subj);
+    return r ? r.s.replace(SUBJ, refOf(P, subj)) : null;
+  }
+
   // Partie « prédicat » d'une contrainte portant sur un sujet donné (pour fusionner les indices)
   function predicateFor(P, part, subj) {
     const g = genderOf(P, subj);
     const other = (x, y) => x === subj ? y : y === subj ? x : null;
-    if (part.t === 'is' || part.t === 'not') { const o = other(part.a, part.b); if (o == null) return null; return predOf(P, o, g, part.t === 'not'); }
-    if (part.t === 'gender' && part.a === subj) return 'est ' + (part.g === 'f' ? 'une femme' : 'un homme');
+    if (part.t === 'is' || part.t === 'not') {
+      const o = other(part.a, part.b); if (o == null) return null;
+      const ex = part.t === 'is' && part.sup ? extremeOf(P, o) : null, tp = ex && P.p.cats[catOf(P, o)].tpl[ex];
+      if (tp && tp.startsWith('{a} ')) return { txt: fill(tp.slice(4), { e: E_(P, subj), le: LE(P, subj) }) };
+      return { txt: predOf(P, o, g, part.t === 'not') };
+    }
+    if (part.t === 'gender' && part.a === subj) return { txt: 'est ' + (part.g === 'f' ? 'une femme' : 'un homme') };
     if ((part.t === 'none' || part.t === 'oneof') && part.a === subj) {
       const sameCat = part.l.every(x => catOf(P, x) === catOf(P, part.l[0]));
-      if (part.t === 'oneof' && sameCat) return predList(P, part.l, g, false, ' ou ');
-      if (part.t === 'none' && sameCat) return predList(P, part.l, g, true, ' ni ');
-      if (part.t === 'none') return joinAnd(part.l.map(x => predOf(P, x, g, true)));
+      if (part.t === 'oneof' && sameCat) return { txt: predList(P, part.l, g, false, ' ou ') };
+      if (part.t === 'none' && sameCat) return { txt: predList(P, part.l, g, true, ' ni ') };
+      if (part.t === 'none') return { txt: joinAnd(part.l.map(x => predOf(P, x, g, true))) };
+    }
+    if (part.t === 'lt' || part.t === 'diff' || part.t === 'next') {
+      const r = cmpFrom(P, part, subj);
+      if (r && r.s.startsWith(SUBJ + ' ')) return { txt: r.s.slice(2), cmp: r };
     }
     return null;
+  }
+  // assemble les prédicats : « a 30 ans, habite à Lyon et n'a pas de chat » ; encadrement « 15 min avant X, mais après Y »
+  function joinPreds(preds) {
+    const cmps = preds.filter(p => p.cmp), rest = preds.filter(p => !p.cmp).map(p => p.txt);
+    let cmpTxt = null;
+    if (cmps.length === 2 && cmps[0].cmp.o === cmps[1].cmp.o) {
+      const [x, y] = cmps[0].cmp.dir === 1 ? [cmps[0], cmps[1]] : [cmps[1], cmps[0]];
+      const wx = x.txt.split(' '), wy = y.txt.split(' ');
+      const STOP = ['plus', 'moins', 'juste', 'mieux', 'tout'];
+      let i = 0; while (i < wx.length - 1 && i < wy.length - 1 && wx[i] === wy[i] && !STOP.includes(wx[i]) && !/\d/.test(wx[i])) i++;
+      const tail = wy.slice(i).join(' ');
+      cmpTxt = x.txt + (x.cmp.dir !== y.cmp.dir ? ', mais ' : ' et ') + tail;
+    } else cmps.forEach(c => rest.unshift(c.txt));
+    if (cmpTxt) { if (!rest.length) return cmpTxt; return joinAnd(rest) + ', et ' + cmpTxt; }
+    return joinAnd(rest);
   }
 
   function clueText(P, cl) {
     if (cl.text && String(cl.text).trim()) return String(cl.text).trim();
-    let a = cl.a, b = cl.b;
-    switch (cl.t) {
-      case 'multi': {
-        const parts = cl.parts || [];
-        // sujet commun ?
-        const cand = new Set();
-        parts.forEach(x => ['a', 'b'].forEach(k => { if (x[k] != null) cand.add(x[k]); }));
+    if (cl.t === 'multi') {
+      const prev = GMAP;
+      GMAP = Object.assign({}, GMAP || {});
+      try {
+        let parts = (cl.parts || []).filter(x => {
+          if (x.t === 'gender' && gendered(P, x.a)) { GMAP[x.a] = x.g; return false; } // genre porté par le nom (« la boulangère »)
+          if (x.t === 'gender' && isName(P, x.a)) return false;
+          return true;
+        });
+        if (parts.length === 1) return clueText(P, parts[0]);
+        const cand = [];
+        parts.forEach(x => ['a', 'b'].forEach(k => { if (x[k] != null && !cand.includes(x[k])) cand.push(x[k]); }));
         let best = null;
         for (const sj of cand) {
           const preds = parts.map(x => predicateFor(P, x, sj));
-          if (preds.every(Boolean) && (!best || (isName(P, sj) && !isName(P, best.sj)))) best = { sj, preds };
+          if (preds.every(Boolean)) {
+            const score = (isName(P, sj) ? 2 : 0) + (gendered(P, sj) && GMAP[sj] ? 3 : 0);
+            if (!best || score > best.score) best = { sj, preds, score };
+          }
         }
-        if (best) return fr(refOf(P, best.sj) + ' ' + joinAnd(best.preds) + '.');
+        if (best) return fr(refOf(P, best.sj) + ' ' + joinPreds(best.preds) + '.');
         return parts.map(x => clueText(P, x)).join(' ');
-      }
+      } finally { GMAP = prev; }
+    }
+    let a = cl.a, b = cl.b;
+    switch (cl.t) {
       case 'gender': return fr(refOf(P, a) + ' est ' + (cl.g === 'f' ? 'une femme' : 'un homme') + '.');
       case 'none': case 'oneof': {
-        if (cl.t === 'oneof' && !isName(P, a) && cl.l.every(x => isName(P, x)))
-          return fr(cl.l.map(x => refOf(P, x)).join(cl.l.length > 2 ? ', ' : ' ou ').replace(/, ([^,]*)$/, ' ou $1') + ' ' + predOf(P, a, 'm') + '.');
+        if (!isName(P, a) && !(GMAP && GMAP[a]) && cl.l.every(x => isName(P, x))) {
+          if (cl.t === 'oneof') return fr(cl.l.map(x => refOf(P, x)).join(cl.l.length > 2 ? ', ' : ' ou ').replace(/, ([^,]*)$/, ' ou $1') + ' ' + predOf(P, a, 'm') + '.');
+          if (cl.l.length <= 3) return fr(cl.l.map(x => 'ni ' + refOf(P, x)).join(' ') + ' ' + negNoPas(P, a) + '.');
+        }
         const p = predicateFor(P, cl, a);
-        if (p) return fr(refOf(P, a) + ' ' + p + '.');
+        if (p) return fr(refOf(P, a) + ' ' + p.txt + '.');
         return fr(refOf(P, a) + ' correspond à l’un de ces éléments : ' + cl.l.map(x => labelOf(P, x)).join(', ') + '.');
       }
       case 'cond':
         return fr('Si ' + refOf(P, a) + ' ' + predOf(P, b, genderOf(P, a)) + ', alors ' + refOf(P, cl.c) + ' ' + predOf(P, cl.d, genderOf(P, cl.c)) + '.');
       case 'is': case 'not': {
-        if (isName(P, b) && !isName(P, a)) { const t = a; a = b; b = t; }
+        if (isName(P, b) && !isName(P, a) && !(GMAP && GMAP[a])) { const t = a; a = b; b = t; }
+        if (GMAP && GMAP[b] && !GMAP[a]) { const t = a; a = b; b = t; }
+        if (cl.t === 'is' && cl.sup) {
+          // superlatif : « Hugo est le plus jeune », « Léa a quitté la soirée en dernier »
+          let s1 = a, o1 = b;
+          if (P.vals[catOf(P, s1)] && !P.vals[catOf(P, o1)]) { s1 = b; o1 = a; }
+          const ex = extremeOf(P, o1), tp = ex && P.p.cats[catOf(P, o1)].tpl[ex];
+          if (tp) return fr(fill(tp, { a: refOf(P, s1), e: E_(P, s1), le: LE(P, s1) }) + '.');
+        }
         return fr(refOf(P, a) + ' ' + predOf(P, b, genderOf(P, a), cl.t === 'not') + '.');
       }
       case 'either': {
@@ -181,15 +266,12 @@
         const e = g === 'f' ? 'e' : '';
         return fr('Parmi ' + refOf(P, a) + ' et ' + refOf(P, b) + ", l’un" + e + ' ' + predOf(P, cl.c, g) + ' et l’autre ' + predOf(P, cl.d, g) + '.');
       }
-      case 'lt': {
-        const t = P.p.cats[cl.o].tpl;
-        if (cl.s) return fr(fill(t.gt, { a: refOf(P, b), b: refOf(P, a), e: genderOf(P, b) === 'f' ? 'e' : '' }) + '.');
-        return fr(fill(t.lt, { a: refOf(P, a), b: refOf(P, b), e: genderOf(P, a) === 'f' ? 'e' : '' }) + '.');
-      }
-      case 'diff': {
-        const c = P.p.cats[cl.o], t = c.tpl, k = fmtK(c, cl.k);
-        if (cl.s) return fr(fill(t.dgt, { a: refOf(P, b), b: refOf(P, a), k, e: genderOf(P, b) === 'f' ? 'e' : '' }) + '.');
-        return fr(fill(t.dlt, { a: refOf(P, a), b: refOf(P, b), k, e: genderOf(P, a) === 'f' ? 'e' : '' }) + '.');
+      case 'lt': case 'diff': case 'next': {
+        const s1 = cmpSentence(P, cl);
+        if (s1) return fr(s1 + '.');
+        // pas de modèle « juste avant » : on le dit autrement
+        const base = cmpSentence(P, Object.assign({}, cl, { t: 'lt' }));
+        return fr(base + ', et personne ne se situe entre les deux.');
       }
       case 'dist': {
         const c = P.p.cats[cl.o], k = fmtK(c, cl.k);
@@ -291,7 +373,7 @@
         if (diffCat(cl.a, cl.b)) out.push([cl.a, cl.b, -1]);
         if (diffCat(cl.c, cl.d)) out.push([cl.c, cl.d, -1]);
         break;
-      case 'lt': case 'diff': case 'dist':
+      case 'lt': case 'diff': case 'dist': case 'next':
         if (diffCat(cl.a, cl.b)) out.push([cl.a, cl.b, -1]);
         break;
       case 'none':
@@ -310,6 +392,7 @@
   function cmpOk(cl, x, y) { // x = valeur de a, y = valeur de b
     if (cl.t === 'lt') return x < y;
     if (cl.t === 'diff') return y - x === cl.k;
+    if (cl.t === 'next') return y - x === 1;
     return Math.abs(y - x) === cl.k;
   }
 
@@ -410,8 +493,8 @@
           const ch = want.filter(([x, y, v]) => S.get(x, y) !== v);
           if (ch.length && emit({ r: 'pair', lv: 2, ci: P.atoms[i].ci, ai: i, cfg: evA ? 'A' : 'B', ch })) return true;
         }
-      } else if (cl.t === 'lt' || cl.t === 'diff' || cl.t === 'dist') {
-        const o = cl.o, V = P.vals[o];
+      } else if (cl.t === 'lt' || cl.t === 'diff' || cl.t === 'dist' || cl.t === 'next') {
+        const o = cl.o, V = cl.t === 'next' ? P.ranks[o] : P.vals[o];
         const va = cands(S, cl.a, o).map(g => idxOf(P, g)), vb = cands(S, cl.b, o).map(g => idxOf(P, g));
         const ra = va.filter(i => !vb.some(j => j !== i && cmpOk(cl, V[i], V[j])));
         const rb = vb.filter(j => !va.some(i => i !== j && cmpOk(cl, V[i], V[j])));
@@ -733,6 +816,7 @@
       case 'pair': return E(cl.a) !== E(cl.b) && E(cl.c) !== E(cl.d) &&
         ((E(cl.a) === E(cl.c) && E(cl.b) === E(cl.d)) || (E(cl.a) === E(cl.d) && E(cl.b) === E(cl.c)));
       case 'lt': return E(cl.a) !== E(cl.b) && val(cl.a, cl.o) < val(cl.b, cl.o);
+      case 'next': return E(cl.a) !== E(cl.b) && P.ranks[cl.o][sol[cl.o][E(cl.b)]] - P.ranks[cl.o][sol[cl.o][E(cl.a)]] === 1;
       case 'diff': return E(cl.a) !== E(cl.b) && val(cl.b, cl.o) - val(cl.a, cl.o) === cl.k;
       case 'dist': return E(cl.a) !== E(cl.b) && Math.abs(val(cl.b, cl.o) - val(cl.a, cl.o)) === cl.k;
     }
@@ -889,6 +973,7 @@
           either: '« Soit… soit… » est exclusif : si les deux options désignaient la même ' + E + ', les deux affirmations seraient vraies à la fois. Elles concernent donc deux ' + E + 's différentes.',
           pair: 'Deux ' + E + 's différentes sont citées, et les deux caractéristiques appartiennent forcément à deux ' + E + 's différentes.',
           lt: 'Une comparaison met forcément en jeu deux ' + E + 's différentes.',
+          next: 'Une comparaison met forcément en jeu deux ' + E + 's différentes.',
           diff: 'Un écart non nul met forcément en jeu deux ' + E + 's différentes.',
           dist: 'Un écart non nul met forcément en jeu deux ' + E + 's différentes.',
           none: cl.fromGender ? 'L’indice révèle le genre : ' + (cl.fromGender === 'f' ? 'c’est une femme' : 'c’est un homme') + '. Tous les prénoms ' + (cl.fromGender === 'f' ? 'masculins' : 'féminins') + ' sont donc exclus.'
@@ -941,6 +1026,7 @@
         const A = chip(P, cl.a), B = chip(P, cl.b);
         let rule;
         if (cl.t === 'lt') rule = 'La valeur de ' + A + ' est strictement inférieure à celle de ' + B + ' (« ' + esc(c.name) + ' »). ' + A + ' ne peut donc pas atteindre la plus grande valeur encore possible pour ' + B + ', et ' + B + ' ne peut pas descendre à la plus petite valeur encore possible pour ' + A + '.';
+        else if (cl.t === 'next') rule = A + ' vient juste avant ' + B + ' (« ' + esc(c.name) + ' ») : leurs valeurs sont voisines dans l’ordre, sans personne entre les deux. On ne garde que les valeurs qui ont une voisine immédiate dans le bon sens.';
         else if (cl.t === 'diff') rule = B + ' a exactement ' + esc(fmtK(c, cl.k)) + ' de plus que ' + A + '. On ne garde que les valeurs qui ont un « partenaire » à cet écart, dans le bon sens.';
         else rule = 'L’écart entre ' + A + ' et ' + B + ' vaut exactement ' + esc(fmtK(c, cl.k)) + ', dans un sens ou dans l’autre. On ne garde que les valeurs qui ont un partenaire à cet écart.';
         h = q + '<p>' + rule + '</p><div class="vals"><div><span>Possibles pour ' + A + '</span>' + valList(P, o, st.va) + '</div><div><span>Possibles pour ' + B + '</span>' + valList(P, o, st.vb) + '</div></div>';
@@ -1015,7 +1101,7 @@
     compile, State, cands, candCount, checkEmpty, isSolved, unknownCount, applyStep,
     propagate, nextStep, enrich, chain, search, countSolutions, solveExplained, rate,
     verify, solutionOf, stateFromSol, evalClue, entityMap,
-    clueText, fmtK, fr, fill, describe, shortOf, focusOf, catOf, idxOf, labelOf,
+    clueText, fmtK, fr, direct: clueDirect, fill, describe, shortOf, focusOf, catOf, idxOf, labelOf,
     TITLES, LEVEL_NAMES,
   };
 })(typeof self !== 'undefined' ? self : this);

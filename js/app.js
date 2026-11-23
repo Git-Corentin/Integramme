@@ -60,6 +60,8 @@
   };
   const settings = Object.assign({ autoX: true, tool: 'cycle', zoom: 1, cross: true, keyOnly: false }, store.get('settings', {}));
   const saveSettings = () => store.set('settings', settings);
+  const applyContrast = () => document.body.classList.toggle('hc', !!settings.contrast);
+  applyContrast();
 
   /* ----------------------------- Moteur (worker) ------------------------- */
   const Engine = (function () {
@@ -216,7 +218,7 @@
             for (let k = 0; k < N; k++) {
               const b = cc * N + k;
               const cell = add('cell' + (i % 2 ? ' alt' : ''), null, r0 + i, c0 + k, null, null, { 'data-a': a, 'data-b': b });
-              cell._r = r0 + i; cell._c = c0 + k;
+              cell._r = r0 + i; cell._c = c0 + k; cell.classList.add('bk' + ((r + j) % 2));
               this.cells.set(this.key(a, b), cell);
             }
           });
@@ -266,7 +268,7 @@
       const geo = cs => {
         const small = cs < 24;
         const fs = Math.max(cs < 13 ? 8.5 : 9.5, Math.min(13, cs * 0.5 + 1));
-        const catw = small ? 18 : 26, gap = small ? 3 : 6;
+        const catw = small ? 18 : 26, gap = (small ? 3 : 6) + (settings.contrast ? 4 : 0);
         const lw = Math.min(rw * fs / 13 + (small ? 7 : 12), cs < 14 ? 58 : small ? 74 : 124);
         const hh = Math.min(cw * fs / 13 + (small ? 8 : 12), small ? 72 : 112);
         const cathh = small ? 20 : 30;
@@ -289,7 +291,7 @@
       const M = this.P.M;
       this.cells.forEach((cell, k) => {
         const a = +cell.dataset.a, b = +cell.dataset.b, v = marks[a * M + b];
-        const au = auto && v === -1 && auto[k] >= 0;
+        const au = auto && v !== 0 && (auto[k] >= 0 || auto[k] === -2);
         const cls = v === 1 ? 'y' : v === -1 ? 'n' : '';
         if (cell._v !== cls + au) {
           cell.classList.toggle('y', v === 1); cell.classList.toggle('n', v === -1); cell.classList.toggle('auto', !!au);
@@ -392,7 +394,7 @@
   }
 
   // ---- modification des cases (avec annulation et exclusion automatique)
-  function setMark(g, a, b, v, rec, allowAuto) {
+  function setMark(g, a, b, v, rec, allowAuto, autoSrc) {
     const P = g.P, M = P.M, k = a < b ? a * M + b : b * M + a;
     const old = g.marks[a * M + b], oldAuto = g.auto[k];
     if (old === v && !(v === -1 && oldAuto >= 0 && !allowAuto)) return;
@@ -405,7 +407,7 @@
     if (old === 1 && v !== 1) {
       for (let i = 0; i < M * M; i++) if (g.auto[i] === k) { const x = Math.floor(i / M), y = i % M; if (g.marks[x * M + y] === -1) put(x, y, 0, -1); }
     }
-    put(a, b, v, -1);
+    put(a, b, v, autoSrc != null ? autoSrc : -1);
     if (v === 1 && settings.autoX && allowAuto !== false) {
       const N = P.N, ca = C.catOf(P, a), cb = C.catOf(P, b);
       for (let i = 0; i < N; i++) {
@@ -415,8 +417,30 @@
       }
     }
   }
+  // Transitivité automatique (option) : a = b ⇒ a hérite de ce que l'on sait de b
+  function autoTransitivity(rec) {
+    const P = game.P, M = P.M, N = P.N, m = game.marks;
+    let changed = true, guard = 0;
+    while (changed && guard++ < 60) {
+      changed = false;
+      for (let a = 0; a < M; a++) {
+        const ca = (a / N) | 0;
+        for (let b = (ca + 1) * N; b < M; b++) {
+          if (m[a * M + b] !== 1) continue;
+          const cb = (b / N) | 0;
+          for (let c = 0; c < M; c++) {
+            const cc = (c / N) | 0; if (cc === ca || cc === cb) continue;
+            const va = m[a * M + c], vb = m[b * M + c];
+            if (vb && !va) { setMark(game, a, c, vb, rec, undefined, -2); changed = true; }
+            else if (va && !vb) { setMark(game, b, c, va, rec, undefined, -2); changed = true; }
+          }
+        }
+      }
+    }
+  }
   function commit(rec) {
     if (!rec.length) return;
+    if (settings.autoTrans) autoTransitivity(rec);
     game.undo.push(rec); if (game.undo.length > 300) game.undo.shift();
     game.redo = [];
     afterChange();
@@ -482,12 +506,14 @@
 
   function renderPlay(main) {
     const g = game, p = g.p, th = themeOf(p.theme);
+    document.body.classList.add('playing');
     main.classList.add('has-playbar');
     const tools = settings.tool, lv = p.rating || p.level;
     const tab = settings.ptab || 'clues';
     main.innerHTML = `
       <div class="playwrap">
         <div class="phead">
+          <button class="icon-btn quit" data-act="quit" title="Quitter (retour à mes enquêtes)" aria-label="Quitter">${ic('left')}</button>
           <div class="ttl">
             <div class="eyebrow">${th ? th.icon + ' ' : ''}Enquête${p.seed != null ? ' n°' + esc(String(p.seed).slice(-5)) : ''}</div>
             <h1>${esc(p.title || 'Enquête')}</h1>
@@ -517,6 +543,7 @@
             </div>
             <div class="grid-fit" id="gscroll"></div>
           </section>
+          <div class="splitter" id="splitter" title="Glisser pour agrandir les indices ou la grille" aria-hidden="true"><i></i></div>
           <aside class="card sidepane" id="sidepane">
             <div class="ptabs" role="tablist">
               <button data-tab="clues" class="${tab === 'clues' ? 'on' : ''}">Indices <span class="badge" id="clueCount"></span></button>
@@ -546,19 +573,29 @@
     gridView.el.classList.toggle('paint', settings.tool !== 'cycle');
     bindGrid(gridView);
     Notes.mount($('[data-pane="notes"]', main));
+    const availH = () => {
+      const wrap = $('.playwrap', main);
+      const used = $('.phead', main).offsetHeight + $('.playbar.mob', main).offsetHeight + ($('#splitter', main).offsetHeight || 0) + 10 * 3 + 14;
+      return wrap.clientHeight - used;
+    };
     const refit = () => {
       if (!gridView || !document.body.contains(gridView.el)) return;
       let maxH;
-      if (isMobile()) {
-        const wrap = $('.playwrap', main);
-        if (wrap.classList.contains('free')) maxH = innerHeight * 0.75;
-        else {
-          const used = $('.phead', main).offsetHeight + $('.playbar.mob', main).offsetHeight + 12 * 3 + 16 + ($('.grid-tools', main).offsetHeight || 0);
-          maxH = wrap.clientHeight - used - Math.min(165, wrap.clientHeight * 0.22);
-        }
-      }
+      if (isMobile()) maxH = availH() * (settings.split || 0.6);
       gridView.fit(fitEl, settings.zoom, maxH);
       $$('.zfit', main).forEach(b => b.classList.toggle('hidden', settings.zoom === 1));
+    };
+    const sp = $('#splitter', main);
+    sp.onpointerdown = e => {
+      e.preventDefault();
+      try { sp.setPointerCapture(e.pointerId); } catch (_) { }
+      const top = $('.gridpane', main).getBoundingClientRect().top, av = availH();
+      let raf = 0;
+      sp.onpointermove = ev => {
+        settings.split = Math.max(0.25, Math.min(0.85, (ev.clientY - top) / av));
+        cancelAnimationFrame(raf); raf = requestAnimationFrame(refit);
+      };
+      sp.onpointerup = sp.onpointercancel = () => { sp.onpointermove = null; saveSettings(); };
     };
     playRefit = refit;
     requestAnimationFrame(refit);
@@ -593,6 +630,7 @@
       if (a === 'undo') undo(); else if (a === 'redo') redo();
       else if (a === 'hint') showHint(); else if (a === 'check') checkGrid();
       else if (a === 'sol') openSolution(); else if (a === 'menu') openMenu();
+      else if (a === 'quit') { location.hash = '#/creer'; }
       else if (a === 'mode') setTool({ cycle: 'no', no: 'yes', yes: 'cycle' }[settings.tool]);
     };
     startTimer();
@@ -729,7 +767,7 @@
     const precise = (e) => e.pointerType !== 'mouse' && settings.precision !== false && (gv.cs || 30) < 24;
     el.addEventListener('pointerdown', e => {
       const cell = e.target.closest('.cell'); if (!cell || e.button === 2) return;
-      hideHint(false);
+      hideHint();
       const cur = game.marks[+cell.dataset.a * game.P.M + +cell.dataset.b];
       const tool = settings.tool;
       if (precise(e)) {
@@ -850,8 +888,10 @@
 
   /* ----------------------------- Indice ---------------------------------- */
   let hintEl = null;
+  let hlTimer = null;
   function hideHint(clearHl) {
     if (hintEl) { hintEl.remove(); hintEl = null; }
+    if (clearHl !== false) clearTimeout(hlTimer);
     if (clearHl !== false && gridView) gridView.highlight([], []);
     $$('#clues li.hl').forEach(li => li.classList.remove('hl'));
   }
@@ -906,10 +946,11 @@
       gridView.highlight(st.ch, C.focusOf(game.P, st));
     };
     hintEl.querySelector('[data-apply]').onclick = () => {
-      const rec = []; st.ch.forEach(([a, b, v]) => setMark(game, a, b, v, rec, false)); commit(rec);
+      const rec = []; st.ch.forEach(([a, b, v]) => setMark(game, a, b, v, rec, v === 1 ? undefined : false)); commit(rec);
       hideHint(false);
       gridView.highlight(st.ch, []);
-      setTimeout(() => gridView && gridView.highlight([], []), 1600);
+      clearTimeout(hlTimer);
+      hlTimer = setTimeout(() => gridView && gridView.highlight([], []), 1600);
     };
   }
 
@@ -997,6 +1038,9 @@
       <div style="margin-top:4px">
         <label class="switch"><span>Exclusion automatique<small>Poser un ● barre le reste de sa ligne et de sa colonne</small></span><input type="checkbox" class="tg" data-s="autoX" ${settings.autoX ? 'checked' : ''}></label>
         <label class="switch"><span>Mode précision<small>Sur écran tactile, quand les cases sont petites : un toucher sélectionne la case, une barre permet de la remplir</small></span><input type="checkbox" class="tg" data-s="precision" ${settings.precision !== false ? 'checked' : ''}></label>
+        <label class="switch"><span>Affichage contrasté<small>Cases bordées, sous-grilles plus séparées et teintées une sur deux</small></span><input type="checkbox" class="tg" data-s="contrast" ${settings.contrast ? 'checked' : ''}></label>
+        <label class="switch"><span>Transitivité automatique<small>Quand deux éléments sont associés (●), tout ce que l’on sait de l’un est recopié sur l’autre. Pour aller plus vite vers les déductions difficiles.</small></span><input type="checkbox" class="tg" data-s="autoTrans" ${settings.autoTrans ? 'checked' : ''}></label>
+        <label class="switch"><span>Thème sombre</span><input type="checkbox" class="tg" data-s="dark" ${document.documentElement.getAttribute('data-theme') === 'dark' ? 'checked' : ''}></label>
         <label class="switch"><span>Croix de repérage<small>Surligner la ligne et la colonne survolées (souris)</small></span><input type="checkbox" class="tg" data-s="cross" ${settings.cross ? 'checked' : ''}></label>
       </div>
       <div style="font-size:12.5px;color:var(--muted);margin-top:10px">Raccourcis : <span class="kbd">Ctrl Z</span> annuler · <span class="kbd">Ctrl Y</span> rétablir · <span class="kbd">H</span> indice · clic droit = ●</div>`,
@@ -1011,7 +1055,13 @@
       if (a === 'edit') { Editor.load(game.p); location.hash = '#/editeur'; }
       if (a === 'export') download((game.p.id || 'integramme') + '.json', JSON.stringify(stripPuzzle(game.p), null, 1));
     });
-    s.el.querySelectorAll('[data-s]').forEach(inp => inp.onchange = () => { settings[inp.dataset.s] = inp.checked; saveSettings(); });
+    s.el.querySelectorAll('[data-s]').forEach(inp => inp.onchange = () => {
+      const k = inp.dataset.s;
+      if (k === 'dark') { if ((document.documentElement.getAttribute('data-theme') === 'dark') !== inp.checked) themeBtn.click(); return; }
+      settings[k] = inp.checked; saveSettings();
+      if (k === 'contrast') { applyContrast(); if (playRefit) playRefit(); }
+      if (k === 'autoTrans' && inp.checked && game) { const rec = []; autoTransitivity(rec); if (rec.length) { game.undo.push(rec); game.redo = []; afterChange(); toast('Transitivité appliquée : ' + rec.length + ' case' + (rec.length > 1 ? 's' : '')); } }
+    });
   }
   const stripPuzzle = p => ({ title: p.title, intro: p.intro, entity: p.entity, theme: p.theme, level: p.level, rating: p.rating, cats: p.cats, clues: p.clues, sol: p.sol });
 
@@ -1199,6 +1249,7 @@
       pair: { label: 'Parmi A et B, l’un est C, l’autre D', slots: ['A', 'B', 'C', 'D'] },
       cond: { label: 'Si A est B, alors C est D', slots: ['A', 'B', 'C', 'D'] },
       lt: { label: 'A a une valeur plus petite que B', slots: ['A', 'B'], ord: true },
+      next: { label: 'A vient juste avant B (voisins dans l’ordre)', slots: ['A', 'B'], ord: true },
       diff: { label: 'A a exactement k de moins que B', slots: ['A', 'B'], ord: true, k: true },
       dist: { label: 'A et B ont exactement k d’écart', slots: ['A', 'B'], ord: true, k: true },
       alldiff: { label: 'Tous différents (2 à 5 éléments)', slots: ['1', '2', '3?', '4?', '5?'], list: true, nolead: true },
@@ -1281,10 +1332,10 @@
       if (t === 'either' && cl.b[0] === cl.c[0] && cl.b[1] === cl.c[1]) return 'B et C doivent être différents';
       if (t === 'pair' && [cl.c, cl.d].some(z => z[0] === cat(cl.a) || z[0] === cat(cl.b))) return 'C et D doivent être d’autres catégories que A et B';
       if (t === 'pair' && cl.a.join() === cl.b.join()) return 'A et B doivent être différents';
-      if ((t === 'lt' || t === 'diff' || t === 'dist')) {
+      if ((t === 'lt' || t === 'diff' || t === 'dist' || t === 'next')) {
         if (cl.o == null || !e.cats[cl.o] || (T.PRESETS[e.cats[cl.o].preset] || {}).kind !== 'ord') return 'choisissez une catégorie numérique';
         if (cl.a.join() === cl.b.join()) return 'A et B doivent être différents';
-        if (t !== 'lt' && !(+cl.k > 0)) return 'l’écart k doit être positif';
+        if ((t === 'diff' || t === 'dist') && !(+cl.k > 0)) return 'l’écart k doit être positif';
       }
       if (t === 'alldiff' && (!cl.l || cl.l.length < 2)) return 'au moins deux éléments';
       if ((t === 'none' || t === 'oneof') && (!cl.l || !cl.l.length)) return 'choisissez au moins un élément';
@@ -1637,6 +1688,7 @@
   function parseQuery() { const q = location.hash.split('?')[1] || ''; const o = {}; q.split('&').forEach(kv => { if (!kv) return; const [k, v] = kv.split('='); o[k] = decodeURIComponent(v || ''); }); return o; }
   function render() {
     hideHint(); Sel.clear();
+    document.body.classList.remove('playing');
     let r = currentRoute();
     const main = $('#view');
     if (!r) { r = loadCurrent() ? 'jouer' : 'creer'; history.replaceState(null, '', '#/' + r); }
